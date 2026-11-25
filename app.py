@@ -581,7 +581,7 @@ def create_app(db_path=None):
                 ('m_tax', 'Winner tax process: collect W-9, issue Form 1099 if required', ''),
             ]),
             ('Launch', [
-                ('m_gmail', 'Create a Gmail app password for yismachmosheow@gmail.com and enter it as SMTP_PASSWORD on Render', ''),
+                ('m_gmail', 'Create a Gmail app password for yismachspin@gmail.com and enter it as SMTP_PASSWORD on Render', ''),
                 ('m_render', 'Deploy to Render (render.yaml) with the persistent disk, and connect the custom domain', ''),
                 ('m_test', 'End-to-end test on the live site: test-card donation, mail-in entry, emails, drawing on a copy', ''),
                 ('m_zoom', 'Schedule the Zoom drawing, share the link with entrants, and record it', ''),

@@ -53,7 +53,7 @@ Before using a live Stripe account, confirm with Stripe that raffle sales are al
 2. In Render: **New → Blueprint**, then pick the repository. Render reads `render.yaml`.
 3. When it asks for the secret values, enter:
    - `RAFFLE_ADMIN_PASSWORD`: 12+ characters. The app refuses to start in production without it.
-   - `SMTP_PASSWORD`: the Gmail app password for yismachmosheow@gmail.com. Leave it blank to keep emails in the admin outbox.
+   - `SMTP_PASSWORD`: the Gmail app password for yismachspin@gmail.com. Leave it blank to keep emails in the admin outbox.
    - `STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY`: **test** keys only. Leave them blank for simulated payments.
    
    `RAFFLE_SECRET_KEY` and `RAFFLE_ADMIN_TOKEN` are generated automatically.

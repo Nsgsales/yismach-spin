@@ -46,9 +46,9 @@ services:
       - key: SMTP_STARTTLS
         value: "1"
       - key: SMTP_USER
-        value: yismachmosheow@gmail.com
+        value: yismachspin@gmail.com
       - key: SMTP_FROM
-        value: Yismach Moshe of North Woodmere <yismachmosheow@gmail.com>
+        value: Yismach Moshe of North Woodmere <yismachspin@gmail.com>
       - key: SMTP_PASSWORD             # Gmail app password, entered in the Render dashboard
         sync: false
       - key: STRIPE_SECRET_KEY         # sk_test_... only, entered in the Render dashboard
