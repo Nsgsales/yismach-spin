@@ -187,9 +187,9 @@
         <div class="fgrid" style="margin-top:10px">${F('Caption under that picture (optional)', 'reveal_caption')}</div>
         <label class="check" style="margin-top:14px"><input type="checkbox" data-k="prizes_confirmed"> Restaurant participation and prize terms are confirmed (hides the “subject to confirmation” notice)</label></fieldset>
       <fieldset><legend>Share &amp; earn links</legend>
-        <p class="help" style="margin-top:0">Every donor gets a personal link after spinning, and anyone can get one in the “Share &amp; earn” section. Paid entries made by other people through a link count toward the thank-you reward. See the Ambassadors tab for the leaderboard.</p>
-        <label class="check"><input type="checkbox" data-k="referral_enabled"> Offer personal share links and the thank-you reward</label>
-        <div class="fgrid" style="margin-top:14px">${F('Entries needed for the reward', 'referral_threshold', 'number')}${F('Reward', 'referral_reward', 'text', 'e.g. A Tomahawk steak from Gourmet Glatt')}</div>
+        <p class="help" style="margin-top:0">Every donor gets a personal link after spinning, and anyone can get one in the “Share your link” section. The Ambassadors tab tracks how many paid entries came through each link. Leave the reward blank to track only; fill it in to show the reward and progress publicly.</p>
+        <label class="check"><input type="checkbox" data-k="referral_enabled"> Offer personal share links</label>
+        <div class="fgrid" style="margin-top:14px">${F('Reward (optional; blank = tracking only)', 'referral_reward', 'text', 'e.g. A Tomahawk steak from Gourmet Glatt')}${F('Entries needed for the reward', 'referral_threshold', 'number')}</div>
         <label style="margin-top:14px">Reward terms (shown under the share box)<textarea data-k="referral_terms"></textarea></label></fieldset>
       <fieldset><legend>Background music</legend>
         <p class="help" style="margin-top:0">Music starts only when a visitor taps the speaker button (browsers block music that plays by itself). A YouTube song plays in YouTube’s own small player, which stays visible, as YouTube requires. Upload an audio file only if the organization has the rights to it.</p>
@@ -309,10 +309,10 @@
   });
 
   /* ambassadors (share-and-earn links) */
-  const REWARD = { none: 'In progress', earned: 'Earned: arrange reward', fulfilled: 'Given' };
+  const REWARD = { none: '—', earned: 'Reward due', fulfilled: 'Reward given' };
   async function loadAmb() {
     const d = await api('/api/admin/ambassadors'); S.amb = d;
-    $('ambIntro').textContent = `${d.ambassadors.length} personal links. Reward: ${d.reward} for ${d.threshold} paid entries by other people through a link. Donors get a link automatically after they spin; you can also create one here for a volunteer.`;
+    $('ambIntro').textContent = `${d.ambassadors.length} personal links. Counts are paid entries made by other people through each link (a person’s own entries don’t count). Donors get a link automatically after they spin; you can also create one here for a volunteer.${d.reward ? ` Public reward: ${d.reward} at ${d.threshold} entries.` : ' No reward is shown publicly.'}`;
     renderAmb();
   }
   function renderAmb() {
@@ -323,7 +323,7 @@
       const st = a.reward_status === 'none' && a.earned ? 'earned' : a.reward_status;
       return `<tr><td>${esc(a.name)}<span class="sub">${esc(a.email)}${a.phone ? ' · ' + esc(a.phone) : ''}</span></td>
       <td class="mono"><a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.code)}</a> <button class="btn sm" data-copy="${esc(a.link)}">Copy</button></td>
-      <td class="num"><b>${a.sold}</b> / ${th}${a.earned ? ' <span class="chip paid">reached</span>' : ''}</td>
+      <td class="num"><b>${a.sold}</b>${S.amb.reward ? ` / ${th}${a.earned ? ' <span class="chip paid">reached</span>' : ''}` : ''}</td>
       <td class="num">${money(a.raised)}</td>
       <td><select data-reward="${a.id}">${Object.entries(REWARD).map(([k, v]) => `<option value="${k}" ${k === st ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
       <td class="num">${esc((a.created || '').slice(0, 10))}<span class="sub">${esc(a.source)}</span></td></tr>`;

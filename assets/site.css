@@ -66,6 +66,7 @@ main,.hero,.nav{position:relative}
 .sb-progress{margin:0 0 8px;font-size:13.5px;color:#d8cfbf}
 .sb-progress strong{font:600 20px var(--serif);color:var(--champ-1)}
 .sb-progress b{color:var(--champ-1)}
+.sb-bar[hidden]{display:none}
 .sb-bar{height:6px;border-radius:99px;background:rgba(236,210,154,.14);overflow:hidden;margin:0 0 14px}
 .sb-bar i{display:block;height:100%;width:0;background:var(--gold);border-radius:99px;transition:width .8s ease}
 .sb-link{display:flex;gap:8px;margin:0 0 10px}

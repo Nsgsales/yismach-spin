@@ -545,6 +545,9 @@ const referral = (() => {
     box.hidden = false;
     box.querySelector('[data-sb-sold]').textContent = a.sold;
     box.querySelector('[data-sb-th]').textContent = a.threshold;
+    const hasReward = !!a.reward;
+    box.querySelector('[data-sb-of]').hidden = !hasReward;
+    box.querySelector('.sb-bar').hidden = !hasReward;
     box.querySelector('[data-sb-bar]').style.width = Math.min(100, a.sold / a.threshold * 100) + '%';
     box.querySelector('[data-sb-link]').value = a.link;
     const text = `${(c && c.share_text) || 'Spin the dreidel and win a year of date nights:'} ${a.link}`;
@@ -564,8 +567,7 @@ const referral = (() => {
   async function init(camp) {
     const on = !!camp.referral_enabled;
     $('earn').hidden = !on;
-    $$('[data-earn-th]').forEach(e => { e.textContent = camp.referral_threshold; });
-    $$('[data-earn-reward]').forEach(e => { e.textContent = camp.referral_reward; });
+    if (camp.referral_reward) $$('[data-earn-lede]').forEach(e => { e.innerHTML = `Share your personal link. When <b>${esc(String(camp.referral_threshold))}</b> entries are made through it, we’ll thank you with <b>${esc(camp.referral_reward)}</b>.`; });
     $$('[data-earn-terms]').forEach(e => { e.textContent = camp.referral_terms || ''; });
     if (!on) return;
     if (code && !incoming) {

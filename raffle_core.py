@@ -57,10 +57,8 @@ DEFAULT_CAMPAIGN = {
     "hero_source": "restaurants",
     # Share-and-earn links: every participant (or anyone who signs up) gets a personal link. Paid entries made by
     # other people through it count toward a thank-you reward. The donor's own odds are never affected.
-    "referral_enabled": True, "referral_threshold": 10,
-    "referral_reward": "A Tomahawk steak from Gourmet Glatt",
-    "referral_terms": ("Counts paid entries made by other people through your personal link. Your own entries don't count. "
-                       "One reward per person. Rewards are arranged by the shul after the campaign."),
+    # Tracking only by default; a reward and its threshold appear publicly only once the shul fills them in.
+    "referral_enabled": True, "referral_threshold": 10, "referral_reward": "", "referral_terms": "",
     # Background music, started only when a visitor taps the speaker button (browsers block autoplay with sound).
     # youtube: YouTube's own visible embedded player (allowed by YouTube); upload: an audio file the organization has rights to.
     "music_source": "youtube", "music_youtube": "tfPHaVhsaVU", "music_autostart": True,

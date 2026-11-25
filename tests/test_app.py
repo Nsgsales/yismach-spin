@@ -559,7 +559,9 @@ def test_share_links_count_other_peoples_paid_entries(client, admin):
     r = client.post('/api/ambassadors', json={'name': 'Sarah Cohen', 'email': 'sarah@example.com'})
     assert r.status_code == 200, r.json
     code = r.json['code']
-    assert r.json['first_name'] == 'Sarah' and r.json['threshold'] == 10 and 'Tomahawk' in r.json['reward']
+    assert r.json['first_name'] == 'Sarah' and r.json['reward'] == '' and r.json['earned'] is False  # tracking only by default
+    admin.put('/api/admin/campaign', json={'referral_reward': 'A Tomahawk steak'}, headers=ADMIN)
+    assert 'Tomahawk' in client.get(f'/api/ambassadors/{code}').json['reward']
     assert r.json['link'].endswith('/?ref=' + code)
     # same email returns the same link
     assert client.post('/api/ambassadors', json={'name': 'Sarah', 'email': 'SARAH@example.com'}).json['code'] == code

@@ -154,9 +154,11 @@ def create_app(db_path=None):
 
     def ambassador_public(c, amb, camp):
         sold, _ = core.ambassador_stats(c, amb)
+        reward = (camp.get('referral_reward') or '').strip()
         return dict(code=amb['code'], first_name=amb['name'].split()[0][:40], sold=sold,
-                    threshold=int(camp['referral_threshold']), reward=camp['referral_reward'],
-                    earned=sold >= int(camp['referral_threshold']), link=request.host_url.rstrip('/') + '/?ref=' + amb['code'])
+                    threshold=int(camp['referral_threshold']), reward=reward,
+                    earned=bool(reward) and sold >= int(camp['referral_threshold']),
+                    link=request.host_url.rstrip('/') + '/?ref=' + amb['code'])
 
     @app.get('/api/ambassadors/<code>')
     def ambassador_get(code):
@@ -327,7 +329,7 @@ def create_app(db_path=None):
             c.commit()
             entry = c.execute('SELECT * FROM entries WHERE id=?', (entry_id,)).fetchone()
 
-            if ok_c and ref_amb:
+            if ok_c and ref_amb and (camp.get('referral_reward') or '').strip():
                 sold, _ = core.ambassador_stats(c, ref_amb)
                 if sold == int(camp['referral_threshold']):
                     core.log(c, 'system', 'referral_reward_earned', code=ref_amb['code'], name=ref_amb['name'], sold=sold)
@@ -696,7 +698,7 @@ def create_app(db_path=None):
             rows = []
             for a in c.execute('SELECT * FROM ambassadors ORDER BY id DESC'):
                 sold, raised = core.ambassador_stats(c, a)
-                rows.append(dict(a, sold=sold, raised=raised / 100, earned=sold >= th,
+                rows.append(dict(a, sold=sold, raised=raised / 100, earned=bool(camp.get('referral_reward')) and sold >= th,
                                  link=request.host_url.rstrip('/') + '/?ref=' + a['code']))
             rows.sort(key=lambda r: (-r['sold'], -r['raised'], r['id']))
         return jsonify(ambassadors=rows, threshold=th, reward=camp['referral_reward'])
