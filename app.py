@@ -336,10 +336,13 @@ def create_app(db_path=None):
                     c.execute("UPDATE ambassadors SET reward_status='earned' WHERE id=? AND reward_status='none'", (ref_amb['id'],))
                 c.commit()
 
-            # 4. Confirmation email (logged to the outbox unless SMTP is configured).
+            # 4. Confirmation email (logged to the outbox unless SMTP is configured), then the staff alert.
             if ok_c:
                 core.deliver_email(c, entry, camp)
                 c.commit()
+                notice = core.staff_notice(c, entry, camp)
+                if notice:
+                    core.send_staff_notice(connect, notice, entry['id'])
             return result(entry, camp)
         finally:
             c.close()
@@ -585,6 +588,9 @@ def create_app(db_path=None):
             entry = load_entry(c, entry_id)
             email_status = core.deliver_email(c, entry, camp, actor())
             c.commit()
+            notice = core.staff_notice(c, entry, camp)
+            if notice:
+                core.send_staff_notice(connect, notice, entry['id'])
             return jsonify(ok=True, number=n, entry_id=entry_id, email_status=email_status)
         finally:
             c.close()

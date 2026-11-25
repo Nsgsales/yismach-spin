@@ -237,6 +237,9 @@
         <label>Legal approval (rules, structure, free entry)<select data-k="legal_approval_status"><option value="not_started">Not started</option><option value="in_review">In review with counsel</option><option value="approved">Approved by counsel</option></select></label>
         <label>Payment processor approval (Stripe)<select data-k="processor_approval_status"><option value="not_started">Not started</option><option value="in_review">Requested</option><option value="approved">Approved in writing</option></select></label></div>
         <p class="help">Until legal approval is marked, the rules pages and the free-entry form show a “Draft pending legal review” notice. Payments stay in test mode regardless; switching to live payments is a separate code change.</p></fieldset>
+      <fieldset><legend>Alerts for the team</legend>
+        <label>Send a copy of every new entry to<input data-k="notify_emails" placeholder="name@example.com, another@example.com"></label>
+        <p class="help">Each donation and each registered mail-in entry sends a short alert: number, amount, name, contact details, which share link it came through, and running totals. Separate several addresses with commas. Requires the email settings (Gmail app password) on the server.</p></fieldset>
       <fieldset><legend>Confirmation email</legend>
         <label>Subject<input data-k="email_subject"></label>
         <label style="margin-top:14px">Body<textarea data-k="email_body" style="min-height:180px"></textarea></label>

@@ -582,3 +582,19 @@ def test_share_links_count_other_peoples_paid_entries(client, admin):
     assert client.post('/api/ambassadors', json={'name': '', 'email': 'x'}).status_code == 400
     # unknown ref is ignored, entry still works
     assert spin(client, email='d@example.com', ref='does-not-exist').status_code == 200
+
+
+def test_staff_alert_for_every_entry(client, admin):
+    import time as _t
+    assert admin.put('/api/admin/campaign', json={'notify_emails': 'not-an-email'}, headers=ADMIN).status_code == 400
+    assert admin.put('/api/admin/campaign', json={'notify_emails': 'team@example.com; boss@example.com'}, headers=ADMIN).json['campaign']['notify_emails'] == 'team@example.com, boss@example.com'
+    n = spin(client, email='donor@example.com').json['number']
+    admin.post('/api/admin/free-entries', json=free_body(), headers=ADMIN)
+    for _ in range(50):
+        mails = admin.get('/api/admin/emails').json['emails']
+        alerts = [m for m in mails if m['to_addr'] in ('team@example.com', 'boss@example.com')]
+        if len(alerts) >= 4:
+            break
+        _t.sleep(0.05)
+    assert len(alerts) == 4 and any(f'New entry #{n}:' in m['subject'] for m in alerts)
+    assert 'notify_emails' not in client.get('/api/campaign').json['campaign']  # never public

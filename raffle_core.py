@@ -110,6 +110,7 @@ DEFAULT_CAMPAIGN = {
     "marketing_consent_text": "Keep me informed about future {org} events and fundraisers (optional).",
     "official_rules": "", "free_entry_instructions": "", "privacy_policy": "", "terms_text": "", "winner_info": "",
     "legal_approval_status": "not_started", "processor_approval_status": "not_started",
+    "notify_emails": "",  # staff who get an email for every new entry (comma-separated), set in the admin
     "email_subject": "Your {campaign} entry: #{number}",
     "email_body": ("Dear {name},\n\nThank you for supporting {org}. Your dreidel landed on number {number}.\n\n"
                    "Entry: #{number}\nDonation: {amount}\nConfirmation: {confirmation}\nDrawing date: {drawing_date}\n\n"
@@ -526,30 +527,74 @@ def smtp_configured():
     return bool(os.environ.get('SMTP_HOST')) and (not os.environ.get('SMTP_USER') or bool(pw))
 
 
+def smtp_send(to, subject, text, html_body=None):
+    """Returns (status, error, sent_at). Without SMTP settings the message is only kept in the admin outbox."""
+    if not smtp_configured():
+        return 'logged', None, None
+    try:
+        msg = EmailMessage()
+        msg['Subject'], msg['To'] = subject, to
+        msg['From'] = os.environ.get('SMTP_FROM', os.environ.get('SMTP_USER', 'raffle@localhost'))
+        msg.set_content(text)
+        if html_body:
+            msg.add_alternative(html_body, subtype='html')
+        with smtplib.SMTP(os.environ['SMTP_HOST'], int(os.environ.get('SMTP_PORT', '587')), timeout=15) as s:
+            if os.environ.get('SMTP_STARTTLS', '1') == '1':
+                s.starttls()
+            if os.environ.get('SMTP_USER'):
+                s.login(os.environ['SMTP_USER'], os.environ.get('SMTP_PASSWORD', ''))
+            s.send_message(msg)
+        return 'sent', None, now_iso()
+    except Exception as e:  # keep the entry; surface the failure in the admin outbox
+        return 'failed', str(e)[:300], None
+
+
 def deliver_email(c, entry, campaign, actor='system'):
     subject, text, html_body = render_email(campaign, entry)
-    status, err, sent_at = 'logged', None, None
-    if smtp_configured():
-        host = os.environ['SMTP_HOST']
-        try:
-            msg = EmailMessage()
-            msg['Subject'], msg['To'] = subject, entry['email']
-            msg['From'] = os.environ.get('SMTP_FROM', os.environ.get('SMTP_USER', 'raffle@localhost'))
-            msg.set_content(text)
-            msg.add_alternative(html_body, subtype='html')
-            with smtplib.SMTP(host, int(os.environ.get('SMTP_PORT', '587')), timeout=15) as s:
-                if os.environ.get('SMTP_STARTTLS', '1') == '1':
-                    s.starttls()
-                if os.environ.get('SMTP_USER'):
-                    s.login(os.environ['SMTP_USER'], os.environ.get('SMTP_PASSWORD', ''))
-                s.send_message(msg)
-            status, sent_at = 'sent', now_iso()
-        except Exception as e:  # keep the entry; surface the failure in the admin outbox
-            status, err = 'failed', str(e)[:300]
+    status, err, sent_at = smtp_send(entry['email'], subject, text, html_body)
     c.execute('INSERT INTO emails(entry_id,to_addr,subject,body_text,body_html,status,error,sent_at) VALUES(?,?,?,?,?,?,?,?)',
               (entry['id'], entry['email'], subject, text, html_body, status, err, sent_at))
     log(c, actor, 'email_' + status, entry_id=entry['id'], to=entry['email'], error=err)
     return status
+
+
+def staff_notice(c, entry, campaign):
+    """Build the 'new entry' alert for staff: returns (recipients, subject, text) or None."""
+    to = [a.strip() for a in (campaign.get('notify_emails') or '').split(',') if a.strip()]
+    if not to:
+        return None
+    free = entry['status'] == 'free'
+    amount = 'Free mail-in entry' if free else money(entry['amount_cents'])
+    paid_n, raised = c.execute("SELECT COUNT(*), COALESCE(SUM(amount_cents),0) FROM entries WHERE status='paid'").fetchone()
+    free_n = c.execute("SELECT COUNT(*) FROM entries WHERE status='free'").fetchone()[0]
+    left = get_max_tickets(c) - len(active_numbers(c))
+    ref = ''
+    if 'ref_code' in entry.keys() and entry['ref_code']:
+        a = c.execute('SELECT name FROM ambassadors WHERE code=?', (entry['ref_code'],)).fetchone()
+        ref = f"\nThrough the link of: {a['name'] if a else entry['ref_code']}"
+    subject = f"New entry #{entry['number']}: {amount} · {entry['name']}"
+    text = (f"{campaign['title']}: new entry\n\nEntry: #{entry['number']}\nDonation: {amount}\nName: {entry['name']}\n"
+            f"Email: {entry['email']}\nPhone: {entry['phone'] or '-'}{ref}\n\n"
+            f"Totals so far: {paid_n} paid entries, {money(raised)} raised, {free_n} free entries, {left} numbers left.\n")
+    return to, subject, text
+
+
+def send_staff_notice(connect_fn, notice, entry_id):
+    """Send the staff alert in the background so the donor never waits for it; record it in the outbox."""
+    import threading
+    to, subject, text = notice
+
+    def run():
+        for addr in to:
+            status, err, sent_at = smtp_send(addr, subject, text)
+            try:
+                with connect_fn() as c2:
+                    c2.execute('INSERT INTO emails(entry_id,to_addr,subject,body_text,body_html,status,error,sent_at) VALUES(?,?,?,?,?,?,?,?)',
+                               (entry_id, addr, subject, text, '<pre style="font:14px/1.5 sans-serif">' + html.escape(text) + '</pre>',
+                                status, err, sent_at))
+            except Exception:
+                pass
+    threading.Thread(target=run, daemon=True).start()
 
 
 # ───────────────────────────── auditable drawing ─────────────────────────────
@@ -612,6 +657,12 @@ def validate_campaign(data, current):
             if data[k] not in APPROVAL_STATES:
                 raise ValueError(f'{k} must be one of {", ".join(APPROVAL_STATES)}.')
             out[k] = data[k]
+    if 'notify_emails' in data:
+        addrs = [a.strip() for a in re.split(r'[,;\s]+', str(data['notify_emails'] or '')) if a.strip()]
+        bad = [a for a in addrs if not EMAIL_RE.fullmatch(a)]
+        if bad or len(addrs) > 10:
+            raise ValueError('Enter up to 10 valid email addresses, separated by commas.')
+        out['notify_emails'] = ', '.join(addrs)
     for k in ('referral_reward', 'referral_terms'):
         if k in data:
             out[k] = str(data[k] or '').strip()[:600]
