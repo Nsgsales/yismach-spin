@@ -38,7 +38,7 @@
       <button data-tab="checklist">Launch checklist</button>
       <button data-tab="activity">Activity</button>
     </nav>
-    <div class="side-foot"><span class="badge sbx">Sandbox payments</span><span class="badge sbx" id="legalBadge" hidden>Legal: not approved</span><a href="/" target="_blank" rel="noopener">View site ↗</a><button class="linkbtn" id="logout">Sign out</button></div>
+    <div class="side-foot"><span class="badge sbx" id="payBadge">Test payments</span><span class="badge sbx" id="legalBadge" hidden>Legal: not approved</span><a href="/" target="_blank" rel="noopener">View site ↗</a><button class="linkbtn" id="logout">Sign out</button></div>
   </aside>
 
   <main class="main">
@@ -123,8 +123,11 @@
     <section class="panel" data-panel="checklist" hidden>
       <header class="ph"><h2>Launch checklist</h2><div class="ph-actions"><span class="badge sbx" id="ckPay">Payments: test mode</span></div></header>
       <div class="card"><div class="card-h"><h3 id="ckSummary">Pre-launch checklist</h3></div>
-        <p class="muted small" style="margin-top:0">Items marked “auto” update themselves from the campaign settings and server configuration. Tick the others as they are completed; each change is recorded in the activity log. Real payments stay disabled until the approvals are done and a developer switches Stripe to live keys.</p>
+        <p class="muted small" style="margin-top:0">Items marked “auto” update themselves from the campaign settings and server configuration. Tick the others as they are completed; each change is recorded in the activity log. Real payments start when live Stripe keys and RAFFLE_LIVE_PAYMENTS=1 are set in Render. Then clear the test entries below.</p>
         <div id="ckList"></div></div>
+      <div class="card" id="ctCard" hidden><h3>Clear test entries</h3>
+        <p class="muted small" style="margin-top:0">Live payments are on. Entries made while testing still hold numbers, so the site stays closed (“Entries open soon”) until they’re cleared. This archives the database on the server, then removes the test entries, payments and emails. Settings, restaurants and share links are kept. It is refused once any real donation exists.</p>
+        <div class="row"><span class="muted small" id="ctCount"></span><button class="btn danger" id="ctGo">Clear test entries and open entries</button></div></div>
       <div class="card"><h3>Start a new campaign</h3>
         <p class="muted small" style="margin-top:0">After the drawing, reuse this site for the next campaign. The current campaign’s complete database (entries, payments, emails, drawing) is archived on the server, then cleared. Branding, restaurants and rules text are kept for you to edit. Entries stay paused until you set new dates.</p>
         <div class="row"><label>New campaign number<input id="ncNumber" placeholder="e.g. YM-2027-01"></label><button class="btn danger" id="ncGo">Archive and start new campaign</button></div></div>

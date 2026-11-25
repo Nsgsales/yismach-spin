@@ -1,13 +1,13 @@
 """Core raffle logic: storage, campaign config, sandbox payments, email, drawing, audit log.
 
-Payments: simulated or Stripe TEST mode only. PAYMENT_MODE is fixed to 'sandbox'.
+Payments: simulated, Stripe TEST mode, or Stripe LIVE mode. Live needs live keys AND RAFFLE_LIVE_PAYMENTS=1.
 """
 import copy, hashlib, hmac, html, json, os, re, secrets, smtplib, sqlite3
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-PAYMENT_MODE = 'sandbox'
+PAYMENT_MODE = 'sandbox'  # set to 'live' by create_app when live Stripe payments are switched on
 DEFAULT_MAX_TICKETS = 360
 MAX_TICKETS_CEILING = 5000
 TZ = ZoneInfo('America/New_York')
@@ -157,7 +157,7 @@ ENTRIES_V3 = '''CREATE TABLE entries (
     request_id TEXT UNIQUE NOT NULL,
     amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0),
     status TEXT NOT NULL CHECK(status IN ('pending_capture','paid','capture_failed','refunded','released','free','disqualified')),
-    payment_mode TEXT NOT NULL DEFAULT 'sandbox' CHECK(payment_mode = 'sandbox'),
+    payment_mode TEXT NOT NULL DEFAULT 'sandbox' CHECK(payment_mode IN ('sandbox','live')),
     authorization_id TEXT,
     capture_id TEXT,
     refund_id TEXT,
@@ -167,7 +167,7 @@ ENTRIES_V3 = '''CREATE TABLE entries (
     street TEXT, city TEXT, state TEXT, zip TEXT, country TEXT,
     consent_at TEXT, consent_text TEXT, rules_version TEXT, campaign_number TEXT,
     marketing_opt_in INTEGER NOT NULL DEFAULT 0,
-    received_at TEXT, notes TEXT)'''
+    received_at TEXT, notes TEXT, ref_code TEXT)'''
 ENTRIES_V3_COLS = ['id', 'number', 'name', 'email', 'phone', 'request_id', 'amount_cents', 'status', 'payment_mode',
                    'authorization_id', 'capture_id', 'refund_id', 'created', 'updated']
 
@@ -232,6 +232,18 @@ def init_db(path):
             c.execute(f'INSERT INTO entries({cols}) SELECT {cols} FROM entries_v3')
             c.execute('DROP TABLE entries_v3')
             c.execute("INSERT INTO activity(actor,action,detail) VALUES('system','migrated_entries','{\"to\": \"v4\"}')")
+        row = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'").fetchone()
+        if "payment_mode = 'sandbox'" in row[0]:  # v4 -> v5: allow live payments
+            old = [r[1] for r in c.execute('PRAGMA table_info(entries)')]
+            for ix in ('entries_number_active', 'entries_email', 'entries_ref'):
+                c.execute(f'DROP INDEX IF EXISTS {ix}')
+            c.execute('ALTER TABLE entries RENAME TO entries_v4')
+            c.execute(ENTRIES_V3)
+            new = {r[1] for r in c.execute('PRAGMA table_info(entries)')}
+            cols = ','.join(k for k in old if k in new)
+            c.execute(f'INSERT INTO entries({cols}) SELECT {cols} FROM entries_v4')
+            c.execute('DROP TABLE entries_v4')
+            c.execute("INSERT INTO activity(actor,action,detail) VALUES('system','migrated_entries','{\"to\": \"v5\"}')")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS entries_number_active ON entries(number) WHERE status != 'released'")
         c.execute('CREATE INDEX IF NOT EXISTS entries_email ON entries(email)')
         if 'ref_code' not in {r[1] for r in c.execute('PRAGMA table_info(entries)')}:
@@ -340,9 +352,19 @@ def summary(c):
     remaining = max(m - taken, 0)
     unit = int(campaign['unit_price_cents'])
     is_open, reason = sales_state(campaign, remaining)
-    return dict(max_tickets=m, sold=sold, free_entries=free, remaining=remaining, unit_price_cents=unit,
+    test_entries = test_entry_count(c)
+    if PAYMENT_MODE == 'live' and test_entries and is_open:
+        is_open, reason = False, 'Entries open soon.'  # test entries must be cleared before real donations are taken
+    return dict(test_entries=test_entries, max_tickets=m, sold=sold, free_entries=free, remaining=remaining, unit_price_cents=unit,
                 min_price=unit / 100, max_price=unit * m / 100, max_gross=max_gross_cents(m, unit) / 100,
                 payment_mode=PAYMENT_MODE, sales_open=is_open, sales_message=reason)
+
+
+def test_entry_count(c):
+    """Entries made while payments were in test/sandbox mode. In live mode they must be cleared before sales open."""
+    if PAYMENT_MODE != 'live':
+        return 0
+    return c.execute("SELECT COUNT(*) FROM entries WHERE payment_mode='sandbox' AND status != 'released'").fetchone()[0]
 
 
 ELIGIBLE_STATUSES = ('paid', 'free')
@@ -459,17 +481,20 @@ def _stripe_http(secret_key, method, path, params, idempotency_key=None):
 
 
 class StripeGateway:
-    """Stripe in TEST mode only. Card details go from the visitor's browser straight to Stripe
+    """Stripe (test or live keys). Card details go from the visitor's browser straight to Stripe
     (Stripe Payment Element); this server only ever sees PaymentIntent and charge ids.
 
     Flow: a PaymentIntent for the maximum amount with capture_method=manual (an authorization hold),
     then a partial capture of exactly the assigned amount; Stripe releases the rest of the hold.
     """
-    name = 'stripe_test'
-
-    def __init__(self, secret_key, publishable_key, http=None):
-        if not (secret_key.startswith(('sk_test_', 'rk_test_')) and publishable_key.startswith('pk_test_')):
-            raise ValueError('Only Stripe TEST keys (sk_test_/pk_test_) are allowed until live payments are approved.')
+    def __init__(self, secret_key, publishable_key, http=None, live=False):
+        kind = 'live' if live else 'test'
+        if not (secret_key.startswith((f'sk_{kind}_', f'rk_{kind}_')) and publishable_key.startswith(f'pk_{kind}_')):
+            if live:
+                raise ValueError('RAFFLE_LIVE_PAYMENTS=1 needs LIVE Stripe keys (sk_live_/rk_live_ and pk_live_).')
+            raise ValueError('Stripe LIVE keys need RAFFLE_LIVE_PAYMENTS=1. Otherwise use TEST keys (sk_test_/rk_test_ and pk_test_).')
+        self.live = live
+        self.name = 'stripe_live' if live else 'stripe_test'
         self.secret_key, self.publishable_key = secret_key, publishable_key
         self.http = http or _stripe_http
 
@@ -529,8 +554,9 @@ class StripeGateway:
 def make_gateway(env):
     blank = lambda v: '' if v.strip().lower() in ('', 'none', '-', 'off') else v.strip()  # noqa: E731
     sk, pk = blank(env.get('STRIPE_SECRET_KEY', '')), blank(env.get('STRIPE_PUBLISHABLE_KEY', ''))
-    if sk or pk:
-        return StripeGateway(sk, pk)
+    live = env.get('RAFFLE_LIVE_PAYMENTS', '').strip() == '1'
+    if sk or pk or live:
+        return StripeGateway(sk, pk, live=live)
     return SandboxGateway()
 
 
@@ -568,7 +594,7 @@ def render_email(campaign, entry):
 <p style="margin:6px 0;font-size:56px;color:#f2d084;font-weight:bold">#{esc['number']}</p>
 <p style="margin:0;color:#f4ecdc">{esc['amount']} · Confirmation {esc['confirmation']}</p></div>
 <p style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#e6dccb">{body}</p>
-<p style="font-family:Arial,sans-serif;font-size:11px;color:#8a8273;margin-top:24px">Test mode: no real charge was made.</p>
+{'' if PAYMENT_MODE == 'live' else '<p style="font-family:Arial,sans-serif;font-size:11px;color:#8a8273;margin-top:24px">Test mode: no real charge was made.</p>'}
 </div></div>'''
     return subject, text, html_body
 

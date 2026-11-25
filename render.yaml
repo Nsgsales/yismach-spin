@@ -1,7 +1,7 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
 # Deploys the fundraising platform. Add the custom domain spin.yismachmosheofwoodmere.com
 # in the Render dashboard (Settings > Custom Domains) after the first deploy.
-# Payments stay in TEST mode: the app refuses live Stripe keys and any RAFFLE_PAYMENT_MODE other than "sandbox".
+# Payments: TEST keys = test mode. Real charges need LIVE keys (rk_live_/pk_live_) AND RAFFLE_LIVE_PAYMENTS=1; any mix is refused at startup.
 services:
   - type: web
     name: yismach-spin
@@ -51,7 +51,7 @@ services:
         value: Yismach Moshe of North Woodmere <yismachspin@gmail.com>
       - key: SMTP_PASSWORD             # Gmail app password, entered in the Render dashboard
         sync: false
-      - key: STRIPE_SECRET_KEY         # sk_test_... only, entered in the Render dashboard
+      - key: STRIPE_SECRET_KEY         # rk_test_/sk_test_ (test) or rk_live_/sk_live_ (live), entered in the Render dashboard
         sync: false
-      - key: STRIPE_PUBLISHABLE_KEY    # pk_test_...
+      - key: STRIPE_PUBLISHABLE_KEY    # pk_test_... or pk_live_...
         sync: false

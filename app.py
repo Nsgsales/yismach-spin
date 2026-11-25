@@ -11,9 +11,7 @@ import raffle_core as core
 
 BASE = Path(__file__).resolve().parent
 
-# Payments stay in sandbox until regulatory and payment processor approval.
-if os.environ.get('RAFFLE_PAYMENT_MODE', 'sandbox') != 'sandbox':
-    raise SystemExit('Live payments are not enabled. Payments must remain in sandbox mode pending approval.')
+# Real payments need BOTH live Stripe keys and RAFFLE_LIVE_PAYMENTS=1 (see make_gateway); anything else stays in test.
 
 UPLOAD_TYPES = {b'\x89PNG': '.png', b'\xff\xd8\xff': '.jpg', b'RIFF': '.webp', b'ID3': '.mp3', b'OggS': '.ogg'}
 AUDIO_EXTS = ('.mp3', '.m4a', '.ogg')
@@ -45,7 +43,9 @@ def create_app(db_path=None):
         gateway = core.make_gateway(os.environ)
     except ValueError as e:
         raise SystemExit(str(e))
-    print(f' * Payments: {gateway.name}' + (' (Stripe TEST mode, no real charges)' if gateway.name == 'stripe_test' else ' (simulated)'))
+    core.PAYMENT_MODE = 'live' if gateway.name == 'stripe_live' else 'sandbox'
+    is_stripe = gateway.name.startswith('stripe')
+    print(f' * Payments: {gateway.name}' + {'stripe_live': ' (LIVE: real cards are charged)', 'stripe_test': ' (Stripe TEST mode, no real charges)'}.get(gateway.name, ' (simulated)'))
     login_attempts = defaultdict(deque)
 
     def connect():
@@ -114,7 +114,7 @@ def create_app(db_path=None):
 
     @app.post('/api/payment-intent')
     def payment_intent():
-        if gateway.name != 'stripe_test':
+        if not is_stripe:
             return jsonify(error='Card payments are not enabled.'), 404
         d = request.get_json(silent=True) or {}
         email, rid = str(d.get('email', '')).strip(), str(d.get('request_id', ''))
@@ -252,7 +252,7 @@ def create_app(db_path=None):
             return jsonify(my_link=my_link(camp), number=entry['number'], amount=entry['amount_cents'] / 100,
                            amount_display=core.money(entry['amount_cents']),
                            confirmation=core.confirmation_code(entry['number']), authorization_id=entry['authorization_id'],
-                           payment_status=entry['status'], payment_mode=core.PAYMENT_MODE, simulated=gateway.name != 'stripe_test', processor=gateway.name,
+                           payment_status=entry['status'], payment_mode=core.PAYMENT_MODE, simulated=not is_stripe, processor=gateway.name,
                            email_status=entry_email_status(entry['id']), title=camp['title'])
 
         def entry_email_status(entry_id):
@@ -273,7 +273,7 @@ def create_app(db_path=None):
                 info = dict(info, sales_open=False, sales_message='You have reached the entry limit for this campaign.')
             if not info['sales_open']:
                 held, hold_id, _ = gateway.authorize(0, email, payment_intent_id=d.get('payment_intent'), request_id=rid) \
-                    if d.get('payment_intent') and gateway.name == 'stripe_test' else (False, None, '')
+                    if d.get('payment_intent') and is_stripe else (False, None, '')
                 if held:  # release the card hold: no number can be assigned
                     ok_v, ref, vmsg = gateway.void(hold_id)
                     core.record_txn(c, 'void', 0, ok_v, ref, vmsg + ' (sales closed)', request_id=rid)
@@ -314,11 +314,11 @@ def create_app(db_path=None):
             if ref_amb and ref_amb['email'].lower() == email.lower():
                 ref_amb = None  # your own link doesn't count
             cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,authorization_id,
-                                 method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in,ref_code)
-                               VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?,?)''',
+                                 method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in,ref_code,payment_mode)
+                               VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?,?,?)''',
                             (n, name, email, phone, rid, amount, auth_id, core.now_iso(),
                              core.auth_text(camp, info) + ' | Eligibility and Official Rules accepted.',
-                             camp.get('rules_version'), camp.get('campaign_number'), marketing, ref_amb['code'] if ref_amb else None))
+                             camp.get('rules_version'), camp.get('campaign_number'), marketing, ref_amb['code'] if ref_amb else None, core.PAYMENT_MODE))
             entry_id = cur.lastrowid
             core.log(c, 'public', 'number_assigned', entry_id=entry_id, number=n, amount_cents=amount,
                      rules_version=camp.get('rules_version'), marketing_opt_in=marketing)
@@ -581,11 +581,11 @@ def create_app(db_path=None):
                 return jsonify(error='All entries have been issued. This free entry cannot be accepted.'), 409
             n = secrets.choice(available)
             cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,method,street,city,state,zip,
-                                 country,consent_at,consent_text,rules_version,campaign_number,received_at,notes)
-                               VALUES(?,?,?,?,?,0,'free','free',?,?,?,?,?,?,?,?,?,?,?)''',
+                                 country,consent_at,consent_text,rules_version,campaign_number,received_at,notes,payment_mode)
+                               VALUES(?,?,?,?,?,0,'free','free',?,?,?,?,?,?,?,?,?,?,?,?)''',
                             (n, name, f['email'], phone, f['request_id'], f['street'], f['city'], f['state'], f['zip'], f['country'],
                              core.now_iso(), 'Signed mail-in form: eligibility certification and Official Rules agreement.',
-                             camp.get('rules_version'), camp.get('campaign_number'), f['received_at'], f['notes']))
+                             camp.get('rules_version'), camp.get('campaign_number'), f['received_at'], f['notes'], core.PAYMENT_MODE))
             entry_id = cur.lastrowid
             core.log(c, actor(), 'free_entry_registered', entry_id=entry_id, number=n, received_at=f['received_at'])
             c.commit()
@@ -631,7 +631,9 @@ def create_app(db_path=None):
                 ('secret', 'Session secret key set (RAFFLE_SECRET_KEY)', bool(os.environ.get('RAFFLE_SECRET_KEY'))),
                 ('https', 'Served over HTTPS with secure cookies (RAFFLE_SECURE_COOKIES=1)', app.config['SESSION_COOKIE_SECURE']),
                 ('smtp', 'Confirmation emails send (SMTP_* settings, including the Gmail app password)', core.smtp_configured()),
-                ('stripe', 'Stripe connected in test mode (STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY)', gateway.name == 'stripe_test'),
+                ('stripe', 'Stripe connected (STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY)', is_stripe),
+                ('live', 'Live payments on (live Stripe keys + RAFFLE_LIVE_PAYMENTS=1)', gateway.name == 'stripe_live'),
+                ('test_cleared', 'Test entries cleared (Launch checklist → Clear test entries)', core.PAYMENT_MODE == 'live' and core.test_entry_count(c) == 0),
                 ('indexing', 'Search engines allowed (RAFFLE_ALLOW_INDEXING=1, at public launch)', os.environ.get('RAFFLE_ALLOW_INDEXING') == '1'),
             ]),
             ('Approvals', [
@@ -677,8 +679,9 @@ def create_app(db_path=None):
     def checklist():
         with connect() as c:
             items = checklist_items(c)
+            tests = core.test_entry_count(c)
         return jsonify(items=items, done=sum(i['done'] for i in items), total=len(items),
-                       live_payments=False, payments=gateway.name)
+                       live_payments=gateway.name == 'stripe_live', payments=gateway.name, test_entries=tests)
 
     @app.post('/api/admin/checklist/<key>')
     def checklist_set(key):
@@ -738,6 +741,34 @@ def create_app(db_path=None):
                       (status, core.now_iso() if status == 'fulfilled' else None, aid))
             core.log(c, actor(), 'ambassador_reward_' + status, ambassador_id=aid)
         return jsonify(ok=True)
+
+    @app.post('/api/admin/clear-test-entries')
+    def clear_test_entries():
+        """Going live: archive the database, then remove everything made while payments were in test mode.
+        Only allowed in live mode and only while no live entry exists, so real donations can never be deleted here."""
+        d = request.get_json(silent=True) or {}
+        if d.get('confirm') != 'CLEAR TEST ENTRIES':
+            return jsonify(error='Type CLEAR TEST ENTRIES to confirm.'), 400
+        if core.PAYMENT_MODE != 'live':
+            return jsonify(error='Live payments are not on yet. Test entries are cleared after switching to live.'), 409
+        c = connect()
+        try:
+            if c.execute("SELECT COUNT(*) FROM entries WHERE payment_mode='live'").fetchone()[0]:
+                return jsonify(error='Live entries already exist; nothing was cleared.'), 409
+            archive.mkdir(parents=True, exist_ok=True)
+            dest = archive / f"before-live-{core.now_iso().replace(' ', '_').replace(':', '')}.sqlite"
+            with core.connect(dest) as out:
+                c.backup(out)
+            c.execute('BEGIN IMMEDIATE')
+            n = c.execute('SELECT COUNT(*) FROM entries').fetchone()[0]
+            for t in ('entries', 'transactions', 'emails', 'drawings'):
+                c.execute(f'DELETE FROM {t}')
+            c.execute("UPDATE ambassadors SET reward_status='none', fulfilled_at=NULL")
+            core.log(c, actor(), 'test_entries_cleared', entries=n, archive=dest.name)
+            c.commit()
+            return jsonify(ok=True, cleared=n, archive=dest.name)
+        finally:
+            c.close()
 
     @app.post('/api/admin/new-campaign')
     def new_campaign():

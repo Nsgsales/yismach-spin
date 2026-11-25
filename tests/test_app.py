@@ -263,11 +263,18 @@ def test_migrates_v1_and_v2_databases(make, tmp_path):
     assert 17 not in nums
 
 
-def test_live_mode_refused(monkeypatch):
-    import subprocess
-    env = dict(os.environ, RAFFLE_PAYMENT_MODE='live')
-    p = subprocess.run([sys.executable, '-c', 'import app'], cwd=ROOT, env=env, capture_output=True, text=True)
-    assert p.returncode != 0 and 'sandbox' in (p.stderr + p.stdout)
+def test_live_needs_both_live_keys_and_switch():
+    live = {'STRIPE_SECRET_KEY': 'rk_live_x', 'STRIPE_PUBLISHABLE_KEY': 'pk_live_x'}
+    with pytest.raises(ValueError, match='RAFFLE_LIVE_PAYMENTS'):
+        core.make_gateway(live)  # live keys without the switch
+    with pytest.raises(ValueError):
+        core.make_gateway({'STRIPE_SECRET_KEY': 'sk_test_x', 'STRIPE_PUBLISHABLE_KEY': 'pk_test_x', 'RAFFLE_LIVE_PAYMENTS': '1'})
+    with pytest.raises(ValueError):
+        core.make_gateway({'RAFFLE_LIVE_PAYMENTS': '1'})  # switch without keys
+    with pytest.raises(ValueError):
+        core.make_gateway({'STRIPE_SECRET_KEY': 'rk_live_x', 'STRIPE_PUBLISHABLE_KEY': 'pk_test_x', 'RAFFLE_LIVE_PAYMENTS': '1'})
+    assert core.make_gateway(dict(live, RAFFLE_LIVE_PAYMENTS='1')).name == 'stripe_live'
+    assert core.make_gateway({}).name == 'simulated'
 
 
 class FakeStripe:
@@ -277,7 +284,7 @@ class FakeStripe:
         self.intents, self.calls, self.n = {}, [], 0
 
     def __call__(self, key, method, path, params, idem=None):
-        assert key.startswith('sk_test_')
+        assert key.startswith(('sk_test_', 'rk_live_'))
         self.calls.append((method, path, dict(params), idem))
         parts = path.strip('/').split('/')
         if path == '/v1/payment_intents' and method == 'POST':
@@ -615,3 +622,35 @@ def test_prize_v3_updates_only_untouched_wording():
     assert data['intro'] == core.PRIZE_V3['intro'][1]
     assert data['prize_items'] == core.PRIZE_V3['prize_items'][1]
     assert data['share_text'] == 'Hand-written share text'
+
+
+def test_going_live_keeps_entries_closed_until_test_entries_cleared(make, tmp_path, monkeypatch):
+    db = tmp_path / 'golive.sqlite'
+    test_client = make(db).test_client()
+    assert spin(test_client).json['payment_status'] == 'paid'  # a test-mode entry
+    fake = FakeStripe()
+    monkeypatch.setattr(core, '_stripe_http', fake)
+    monkeypatch.setattr(core, 'PAYMENT_MODE', core.PAYMENT_MODE)  # restored after the test
+    monkeypatch.setenv('STRIPE_SECRET_KEY', 'rk_live_123')
+    monkeypatch.setenv('STRIPE_PUBLISHABLE_KEY', 'pk_live_123')
+    monkeypatch.setenv('RAFFLE_LIVE_PAYMENTS', '1')
+    a = make(db)
+    c, adm = a.test_client(), a.test_client()
+    s = c.get('/api/status').json
+    assert s['processor'] == 'stripe_live' and s['payment_mode'] == 'live'
+    assert s['sales_open'] is False and s['sales_message'] == 'Entries open soon.' and s['test_entries'] == 1
+    adm.post('/api/admin/login', json={'username': 'admin', 'password': 'local-demo-only'})
+    assert adm.post('/api/admin/clear-test-entries', json={'confirm': 'nope'}, headers=ADMIN).status_code == 400
+    r = adm.post('/api/admin/clear-test-entries', json={'confirm': 'CLEAR TEST ENTRIES'}, headers=ADMIN)
+    assert r.status_code == 200 and r.json['cleared'] == 1 and (tmp_path / 'archive' / r.json['archive']).exists()
+    s = c.get('/api/status').json
+    assert s['sales_open'] is True and s['remaining'] == 360
+    rid = str(uuid.uuid4())
+    pid = c.post('/api/payment-intent', json={'email': 't@example.com', 'request_id': rid}).json['payment_intent']
+    fake.browser_confirms(pid)
+    d = spin(c, rid=rid, payment_intent=pid).json
+    assert d['payment_status'] == 'paid' and d['processor'] == 'stripe_live' and d['payment_mode'] == 'live'
+    with sqlite3.connect(db) as raw:
+        assert raw.execute('SELECT payment_mode FROM entries').fetchall() == [('live',)]
+    # real donations can never be wiped by this button
+    assert adm.post('/api/admin/clear-test-entries', json={'confirm': 'CLEAR TEST ENTRIES'}, headers=ADMIN).status_code == 409

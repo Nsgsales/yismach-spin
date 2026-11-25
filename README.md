@@ -30,7 +30,7 @@ To start over, stop the server and delete `raffle.sqlite`. Older databases (250-
 | `RAFFLE_PROXY_FIX=1` | Trust the HTTPS proxy's forwarded headers (Render) |
 | `RAFFLE_ALLOW_INDEXING=1` | Allow search engines (otherwise `noindex`) |
 | `RAFFLE_ARCHIVE` | Folder for archived campaigns |
-| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | Stripe **test** keys (`sk_test_…`, `pk_test_…`). Live keys are refused. Without them, payments are simulated |
+| `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | Stripe keys. Test keys (`rk_test_…`/`sk_test_…`, `pk_test_…`) = test mode. Live keys work only together with `RAFFLE_LIVE_PAYMENTS=1`. Without keys, payments are simulated |
 
 ## Stripe (test mode)
 
@@ -67,7 +67,7 @@ Before using a live Stripe account, confirm with Stripe that raffle sales are al
 5. In Render → the service → **Settings → Custom Domains**, click **Verify** next to `spin.yismachmosheofwoodmere.com`. Render issues the SSL certificate automatically, usually within minutes of DNS resolving. The domain has no CAA records, so nothing blocks issuance.
 6. Sign in at `https://spin.yismachmosheofwoodmere.com/admin` and work through **Launch checklist**.
 
-Search engines are blocked by an `X-Robots-Tag: noindex` header until `RAFFLE_ALLOW_INDEXING=1` is set. Payments stay in test mode: live Stripe keys are refused by the code.
+Search engines are blocked by an `X-Robots-Tag: noindex` header until `RAFFLE_ALLOW_INDEXING=1` is set. Going live: set live keys plus `RAFFLE_LIVE_PAYMENTS=1`, then Admin → Launch checklist → Clear test entries (entries stay closed until test entries are cleared).
 
 ### Reusing the platform for future campaigns
 

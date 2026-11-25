@@ -48,11 +48,12 @@
   /* overview + entries */
   async function loadOverview() {
     const d = S.data = await api('/api/admin');
+    $('payBadge').textContent = d.payment_mode === 'live' ? 'LIVE payments' : 'Test payments';
     const camp = S.campaign || (await api('/api/admin/campaign')).campaign; S.campaign = camp;
     $('campName').textContent = camp.title;
     const c = d.counts;
     $('stats').innerHTML = [
-      ['Funds raised', money(d.total), `sandbox · max ${money(d.max_gross)}`, 'hl'],
+      ['Funds raised', money(d.total), `${d.payment_mode === 'live' ? 'live' : 'test'} · max ${money(d.max_gross)}`, 'hl'],
       ['Tickets sold', `${c.paid + c.pending_capture + c.capture_failed}`, `of ${d.max_tickets}`],
       ['Free entries', c.free, c.disqualified ? `${c.disqualified} disqualified` : 'mail-in, same drawing'],
       ['Remaining', d.remaining, d.sales_open ? 'entries open' : esc(d.sales_message)],
@@ -350,7 +351,9 @@
   async function loadChecklist() {
     const d = await api('/api/admin/checklist');
     $('ckSummary').textContent = `${d.done} of ${d.total} complete`;
-    $('ckPay').textContent = d.payments === 'stripe_test' ? 'Payments: Stripe test mode' : 'Payments: simulated (test)';
+    $('ckPay').textContent = { stripe_live: 'Payments: LIVE', stripe_test: 'Payments: Stripe test mode' }[d.payments] || 'Payments: simulated (test)';
+    $('ctCard').hidden = !(d.payments === 'stripe_live' && d.test_entries > 0);
+    $('ctCount').textContent = `${d.test_entries || 0} test entries waiting to be cleared.`;
     let html = '', group = '';
     for (const i of d.items) {
       if (i.group !== group) { group = i.group; html += `<p class="ck-group">${esc(group)}</p>`; }
@@ -368,6 +371,11 @@
     catch (err) { toast(err.message, true); }
   }
   $('ckList').addEventListener('change', (e) => { const row = e.target.closest('[data-ck]'); if (row && (e.target.type === 'checkbox' || e.target.classList.contains('note'))) saveCk(row); });
+  $('ctGo').addEventListener('click', async () => {
+    if (prompt('This archives the database, then removes every test entry, payment and email.\n\nType CLEAR TEST ENTRIES to continue:') !== 'CLEAR TEST ENTRIES') return;
+    try { const r = await api('/api/admin/clear-test-entries', { method: 'POST', body: { confirm: 'CLEAR TEST ENTRIES' } }); toast(`${r.cleared} test entries cleared. Entries are open.`); loadChecklist(); }
+    catch (err) { toast(err.message, true); }
+  });
   $('ncGo').addEventListener('click', async () => {
     const number = $('ncNumber').value.trim();
     if (!number) { toast('Enter the new campaign number.', true); return; }

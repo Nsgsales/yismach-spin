@@ -522,9 +522,11 @@ function renderCampaign(c) {
 
 function renderStatus(s) {
   state.processor = s.processor || 'simulated';
-  $('consentNote').textContent = state.processor === 'stripe_test'
+  const live = state.processor === 'stripe_live';
+  $('consentNote').textContent = live ? '' : state.processor === 'stripe_test'
     ? 'Stripe test mode: no real charge. Test card 4242 4242 4242 4242, any future date, any CVC.'
     : 'Sandbox demo: no real charge occurs.';
+  $$('.sandbox-pill, [data-test-only]').forEach(e => { e.hidden = live; });
   if (dreidel && dreidel.setCount) dreidel.setCount(s.max_tickets); else dreidelReady.then(d => d.setCount && d.setCount(s.max_tickets));
   state.max = s.max_tickets; state.unit = s.unit_price_cents; state.remaining = s.remaining; state.open = s.sales_open; state.closedMsg = s.sales_message;
   $$('.maxT').forEach(e => { e.textContent = s.max_tickets; });
@@ -658,7 +660,7 @@ function loadStripe() {
   }));
 }
 async function preparePayment() {
-  if (state.processor !== 'stripe_test') { $('payEl').hidden = true; return; }
+  if (!state.processor.startsWith('stripe')) { $('payEl').hidden = true; return; }
   if (payment && payment.rid === state.requestId) return;
   const box = $('payEl'); box.hidden = false; box.innerHTML = '<p class="pay-loading">Loading secure card form…</p>';
   const rid = state.requestId;
@@ -676,7 +678,7 @@ async function preparePayment() {
   payment = { rid, pi: d.payment_intent, stripe, elements };
 }
 async function authorizeCard(p) {
-  if (state.processor !== 'stripe_test') return null;
+  if (!state.processor.startsWith('stripe')) return null;
   if (!payment || payment.rid !== state.requestId) throw new Error('The card form is still loading. Please try again.');
   const { error, paymentIntent } = await payment.stripe.confirmPayment({ elements: payment.elements, redirect: 'if_required',
     confirmParams: { return_url: location.origin + '/', payment_method_data: { billing_details: { name: p.name, email: p.email, phone: p.phone } } } });
@@ -707,7 +709,7 @@ $('checkout').addEventListener('submit', async (e) => {
   const payload = { name: $('name').value.trim(), email: $('email').value.trim(), phone: $('phone').value.trim(), consent: true, consent_rules: true, marketing: $('marketing').checked, ref: referral.code, request_id: state.requestId };
   const go = $('go'), label = go.querySelector('span'), txt = label.textContent;
   try {
-    go.disabled = true; if (state.processor === 'stripe_test') label.textContent = 'Authorizing card…';
+    go.disabled = true; if (state.processor.startsWith('stripe')) label.textContent = 'Authorizing card…';
     const pi = await authorizeCard(payload);
     if (pi) payload.payment_intent = pi;
   } catch (err) { $('error').textContent = err.message; return; }
@@ -755,9 +757,9 @@ function reveal(d) {
   $('rConf').textContent = d.confirmation; $('rAuth').textContent = d.authorization_id || '—';
   const st = $('rStatus'); st.classList.remove('warn');
   if (d.payment_status === 'paid') {
-    const mode = d.processor === 'stripe_test' ? 'Stripe test mode' : 'sandbox';
-    st.textContent = d.email_status === 'sent' ? `Donation received (${mode}). Your entry confirmation is on its way to your inbox.`
-      : `Donation received (${mode}). Your entry confirmation is ready; email delivery isn’t set up yet.`;
+    const mode = d.processor === 'stripe_live' ? '' : d.processor === 'stripe_test' ? ' (Stripe test mode)' : ' (sandbox)';
+    st.textContent = d.email_status === 'sent' ? `Thank you! Donation received${mode}. Your entry confirmation is on its way to your inbox.`
+      : `Thank you! Donation received${mode}. Your entry confirmation is ready.`;
   } else { st.classList.add('warn'); st.textContent = 'Your number is held, but the payment didn’t go through. Our team will contact you to complete it.'; }
   const c = state.campaign || {};
   const myLink = d.my_link ? d.my_link.link : `${location.origin}/`;
