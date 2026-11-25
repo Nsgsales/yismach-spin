@@ -318,8 +318,10 @@ def get_or_create_ambassador(c, name, email, phone='', source='self'):
     if row:
         return row, False
     code = new_ambassador_code(c, name)
-    c.execute('INSERT INTO ambassadors(code,name,email,phone,source) VALUES(?,?,?,?,?)', (code, name, email, phone or '', source))
-    return c.execute('SELECT * FROM ambassadors WHERE code=?', (code,)).fetchone(), True
+    # OR IGNORE: two simultaneous entries by the same person can't both create a link
+    cur = c.execute('INSERT OR IGNORE INTO ambassadors(code,name,email,phone,source) VALUES(?,?,?,?,?)', (code, name, email, phone or '', source))
+    row = c.execute('SELECT * FROM ambassadors WHERE lower(email)=lower(?)', (email,)).fetchone()
+    return row, cur.rowcount == 1
 
 
 def ambassador_stats(c, amb):

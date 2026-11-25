@@ -238,11 +238,15 @@ def create_app(db_path=None):
         def my_link(camp):
             if not camp.get('referral_enabled'):
                 return None
-            with connect() as c2:
-                amb, created = core.get_or_create_ambassador(c2, name, email, phone, 'entrant')
-                if created:
-                    core.log(c2, 'public', 'ambassador_created', code=amb['code'], email=email, source='entrant')
-                return ambassador_public(c2, amb, camp)
+            try:  # a share-link problem must never break the entry confirmation
+                with connect() as c2:
+                    amb, created = core.get_or_create_ambassador(c2, name, email, phone, 'entrant')
+                    if created:
+                        core.log(c2, 'public', 'ambassador_created', code=amb['code'], email=email, source='entrant')
+                    return ambassador_public(c2, amb, camp)
+            except Exception as e:  # noqa: BLE001
+                app.logger.warning('share link not created for %s: %s', email, e)
+                return None
 
         def result(entry, camp):
             return jsonify(my_link=my_link(camp), number=entry['number'], amount=entry['amount_cents'] / 100,

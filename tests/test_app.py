@@ -590,7 +590,7 @@ def test_staff_alert_for_every_entry(client, admin):
     assert admin.put('/api/admin/campaign', json={'notify_emails': 'team@example.com; boss@example.com'}, headers=ADMIN).json['campaign']['notify_emails'] == 'team@example.com, boss@example.com'
     n = spin(client, email='donor@example.com').json['number']
     admin.post('/api/admin/free-entries', json=free_body(), headers=ADMIN)
-    for _ in range(50):
+    for _ in range(200):
         mails = admin.get('/api/admin/emails').json['emails']
         alerts = [m for m in mails if m['to_addr'] in ('team@example.com', 'boss@example.com')]
         if len(alerts) >= 4:
