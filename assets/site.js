@@ -83,16 +83,16 @@ const music = (() => {
     if (audio) audio.pause();
   }
   function configure(c) {
-    const next = { source: c.music_source || 'off', youtube: c.music_youtube || '', title: c.music_title || '', url: c.music_url || '' };
+    const next = { source: c.music_source || 'off', youtube: c.music_youtube || '', title: c.music_title || '', url: c.music_url || '', autostart: c.music_autostart !== false };
     if (JSON.stringify(next) === JSON.stringify(cfg)) return;
     stop(); clearTimeout(preloadTimer);
     if (player) { try { player.destroy(); } catch {} }
     player = null; ready = false; audio = null; cfg = next; $('musicPlayer').innerHTML = '';
     $('musicTitle').textContent = cfg.title || 'Now playing';
-    if (cfg.source === 'youtube' && cfg.youtube) preloadTimer = setTimeout(loadYT, 2500);
+    if (cfg.source === 'youtube' && cfg.youtube) preloadTimer = setTimeout(loadYT, cfg.autostart ? 600 : 2500);
     if (cfg.source === 'upload' && cfg.url) { audio = new Audio(cfg.url); audio.loop = true; audio.volume = 0.4; audio.preload = 'auto'; }
   }
-  return { start, stop, configure };
+  return { start, stop, configure, get autostart() { return cfg.autostart && cfg.source !== 'off'; } };
 })();
 
 /* ───────────── sound (opt-in, off by default) ───────────── */
@@ -128,7 +128,17 @@ const sound = (() => {
       }
     });
   }
-  return { tick, whoosh, chime, off() { if (on) btn.click(); } };
+  return { tick, whoosh, chime, off() { if (on) btn.click(); }, on() { if (!on) btn.click(); } };
+})();
+// Browsers only allow sound after the visitor interacts, so "autostart" means: the first tap, click or key press anywhere
+// on the page starts the music (unless that tap was on the Music button or the player itself, which handle themselves).
+(() => {
+  const first = (e) => {
+    document.removeEventListener('click', first, true); document.removeEventListener('keydown', first, true);
+    if (!music.autostart || (e.target.closest && e.target.closest('#sound, #musicDock'))) return;
+    sound.on();
+  };
+  document.addEventListener('click', first, true); document.addEventListener('keydown', first, true);
 })();
 $('musicClose').addEventListener('click', () => sound.off());
 

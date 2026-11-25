@@ -188,6 +188,7 @@
       <fieldset><legend>Background music</legend>
         <p class="help" style="margin-top:0">Music starts only when a visitor taps the speaker button (browsers block music that plays by itself). A YouTube song plays in YouTube’s own small player, which stays visible, as YouTube requires. Upload an audio file only if the organization has the rights to it.</p>
         <div class="fgrid"><label>Music<select data-k="music_source"><option value="youtube">A YouTube video</option><option value="upload">An uploaded audio file</option><option value="off">No music</option></select></label>
+        <label class="check" style="align-self:end"><input type="checkbox" data-k="music_autostart"> Start the music on the visitor’s first tap or click anywhere on the page</label>
         ${F('YouTube link', 'music_youtube', 'text', 'Paste the video link, e.g. https://www.youtube.com/watch?v=…')}${F('Song title shown in the player', 'music_title')}</div>
         <div style="margin-top:14px" class="audiofield" id="musicField"></div></fieldset>
       <fieldset><legend>Restaurants &amp; sponsors</legend><div class="rlist" id="rlist"></div><button type="button" class="btn" id="addR" style="margin-top:12px">+ Add restaurant</button></fieldset>

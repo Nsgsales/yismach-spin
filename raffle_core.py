@@ -56,7 +56,7 @@ DEFAULT_CAMPAIGN = {
     "hero_source": "restaurants",
     # Background music, started only when a visitor taps the speaker button (browsers block autoplay with sound).
     # youtube: YouTube's own visible embedded player (allowed by YouTube); upload: an audio file the organization has rights to.
-    "music_source": "youtube", "music_youtube": "tfPHaVhsaVU",
+    "music_source": "youtube", "music_youtube": "tfPHaVhsaVU", "music_autostart": True,
     "music_title": "Yismach Moshe · DJ Farbreng ft. Moshe Storch & Sruly Green (TYH Nation)", "music_url": "",  # top slideshow: each restaurant's photo + logo, or the custom hero_images
 
     "restaurants": [dict(r, logo=f"/assets/logos/{RESTAURANT_SLUGS[i]}.png",
@@ -112,7 +112,7 @@ DEFAULT_CAMPAIGN = {
 }
 
 PUBLIC_CAMPAIGN_KEYS = ["org_name", "presents", "title", "subtitle", "headline", "intro", "tagline", "prize_title",
-                        "prize_description", "prize_items", "prize_image", "hero_images", "hero_source", "music_source", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
+                        "prize_description", "prize_items", "prize_image", "hero_images", "hero_source", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
                         "start_at", "end_at", "prizes_confirmed", "share_text",
                         "org_legal_name", "org_nonprofit_status", "org_ein", "org_address", "org_email", "org_phone",
                         "campaign_purpose", "campaign_number", "rules_version", "free_entry_enabled", "min_age",
@@ -592,7 +592,7 @@ def validate_campaign(data, current):
                 raise ValueError(f'{k} must be a date/time like 2026-12-14T20:00.')
     if out.get('start_at') and out.get('end_at') and out['end_at'] <= out['start_at']:
         raise ValueError('The end date must be after the start date.')
-    for k in ('sales_paused', 'prizes_confirmed', 'free_entry_enabled', 'winner_anonymous_allowed'):
+    for k in ('sales_paused', 'prizes_confirmed', 'free_entry_enabled', 'winner_anonymous_allowed', 'music_autostart'):
         if k in data:
             out[k] = bool(data[k])
     if 'winners' in data:
