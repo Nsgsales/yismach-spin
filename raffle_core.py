@@ -53,7 +53,11 @@ DEFAULT_CAMPAIGN = {
                     "$1,500 in total Uber gift cards.", "One extraordinary year of fine dining."],
     "prize_image": "",
     "hero_images": [f"/assets/img/hero-{i}.jpg" for i in (1, 6, 2, 7, 5)],
-    "hero_source": "restaurants",  # top slideshow: each restaurant's photo + logo, or the custom hero_images
+    "hero_source": "restaurants",
+    # Background music, started only when a visitor taps the speaker button (browsers block autoplay with sound).
+    # youtube: YouTube's own visible embedded player (allowed by YouTube); upload: an audio file the organization has rights to.
+    "music_source": "youtube", "music_youtube": "tfPHaVhsaVU",
+    "music_title": "Yismach Moshe · DJ Farbreng ft. Moshe Storch & Sruly Green (TYH Nation)", "music_url": "",  # top slideshow: each restaurant's photo + logo, or the custom hero_images
 
     "restaurants": [dict(r, logo=f"/assets/logos/{RESTAURANT_SLUGS[i]}.png",
                          photo=f"/assets/img/r-{RESTAURANT_SLUGS[i]}.jpg")
@@ -108,7 +112,7 @@ DEFAULT_CAMPAIGN = {
 }
 
 PUBLIC_CAMPAIGN_KEYS = ["org_name", "presents", "title", "subtitle", "headline", "intro", "tagline", "prize_title",
-                        "prize_description", "prize_items", "prize_image", "hero_images", "hero_source", "restaurants", "transport", "winners", "drawing_date",
+                        "prize_description", "prize_items", "prize_image", "hero_images", "hero_source", "music_source", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
                         "start_at", "end_at", "prizes_confirmed", "share_text",
                         "org_legal_name", "org_nonprofit_status", "org_ein", "org_address", "org_email", "org_phone",
                         "campaign_purpose", "campaign_number", "rules_version", "free_entry_enabled", "min_age",
@@ -622,6 +626,23 @@ def validate_campaign(data, current):
     for k in ('prize_image',):
         if out.get(k) and not re.fullmatch(r'/(assets|uploads)/[A-Za-z0-9._/-]+', out[k]):
             raise ValueError('Images must be uploaded files.')
+    if 'music_source' in data:
+        if data['music_source'] not in ('youtube', 'upload', 'off'):
+            raise ValueError('music_source must be youtube, upload or off.')
+        out['music_source'] = data['music_source']
+    if 'music_youtube' in data:
+        v = str(data['music_youtube'] or '').strip()
+        m = re.search(r'(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})', v) or re.fullmatch(r'([A-Za-z0-9_-]{11})', v)
+        if v and not m:
+            raise ValueError('Enter a YouTube link or video ID.')
+        out['music_youtube'] = m.group(1) if m else ''
+    if 'music_title' in data:
+        out['music_title'] = str(data['music_title'] or '').strip()[:200]
+    if 'music_url' in data:
+        v = str(data['music_url'] or '').strip()
+        if v and not re.fullmatch(r'/(assets|uploads)/[A-Za-z0-9._/-]+\.(mp3|m4a|ogg)', v):
+            raise ValueError('Music must be an uploaded MP3, M4A or OGG file.')
+        out['music_url'] = v
     if 'hero_source' in data:
         if data['hero_source'] not in ('restaurants', 'custom'):
             raise ValueError('hero_source must be restaurants or custom.')

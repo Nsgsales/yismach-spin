@@ -185,6 +185,11 @@
         <label style="margin-top:16px">Top-of-page slideshow shows<select data-k="hero_source"><option value="restaurants">Each restaurant’s photo and logo (from the list below)</option><option value="custom">The custom slides below</option></select></label>
         <p class="help" style="margin-top:12px">Custom slides (dishes fade in and out behind the headline; use restaurant photos with permission)</p><div class="fgrid">${[0,1,2,3,4,5,6,7].map(i => imgField(`Slide ${i + 1}`, `hs:${i}`, (c.hero_images || [])[i])).join('')}</div><div style="margin-top:14px">${imgField('Prize image', 'prize_image', c.prize_image)}</div>
         <label class="check" style="margin-top:14px"><input type="checkbox" data-k="prizes_confirmed"> Restaurant participation and prize terms are confirmed (hides the “subject to confirmation” notice)</label></fieldset>
+      <fieldset><legend>Background music</legend>
+        <p class="help" style="margin-top:0">Music starts only when a visitor taps the speaker button (browsers block music that plays by itself). A YouTube song plays in YouTube’s own small player, which stays visible, as YouTube requires. Upload an audio file only if the organization has the rights to it.</p>
+        <div class="fgrid"><label>Music<select data-k="music_source"><option value="youtube">A YouTube video</option><option value="upload">An uploaded audio file</option><option value="off">No music</option></select></label>
+        ${F('YouTube link', 'music_youtube', 'text', 'Paste the video link, e.g. https://www.youtube.com/watch?v=…')}${F('Song title shown in the player', 'music_title')}</div>
+        <div style="margin-top:14px" class="audiofield" id="musicField"></div></fieldset>
       <fieldset><legend>Restaurants &amp; sponsors</legend><div class="rlist" id="rlist"></div><button type="button" class="btn" id="addR" style="margin-top:12px">+ Add restaurant</button></fieldset>
       <fieldset><legend>Transportation</legend>
         <label class="check"><input type="checkbox" data-t="enabled"> Show the transportation section</label>
@@ -231,11 +236,16 @@
         <p class="help">Placeholders: {name} {number} {amount} {confirmation} {campaign} {org} {drawing_date}</p></fieldset>`;
     document.querySelectorAll('#campForm [data-k]').forEach(el => { const v = c[el.dataset.k]; if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? ''; });
     document.querySelectorAll('#campForm [data-t]').forEach(el => { const v = c.transport[el.dataset.t]; if (el.type === 'checkbox') el.checked = v !== false; else el.value = v ?? ''; });
-    S.rest = c.restaurants.map(r => ({ ...r })); renderRest();
+    S.rest = c.restaurants.map(r => ({ ...r })); renderRest(); S.musicUrl = c.music_url || ''; renderMusic();
     $('legalBadge').hidden = c.legal_approval_status === 'approved';
     $('addR').onclick = () => { S.rest.push({ name: '', location: '', description: '', logo: '', photo: '' }); renderRest(); };
     const gross = () => { const n = +$('maxTickets').value || 0, u = Math.round((+$('unitPrice').value || 0) * 100); $('grossHelp').textContent = `Donations of ${cents(u)}–${cents(u * n)} · maximum gross proceeds ${cents(u * n * (n + 1) / 2)}`; };
     $('maxTickets').oninput = gross; $('unitPrice').oninput = gross; gross();
+  }
+  function renderMusic() {
+    const u = S.musicUrl;
+    $('musicField').innerHTML = `<span class="help" style="display:block;margin:0 0 6px">Uploaded audio file (MP3, M4A or OGG, up to 20 MB)</span>${u ? `<audio controls preload="none" src="${esc(u)}" style="width:100%;max-width:420px"></audio>` : '<span class="none">No file uploaded</span>'}
+      <div style="margin-top:8px;display:flex;gap:8px"><label class="btn sm">Upload audio<input type="file" accept="audio/mpeg,audio/mp4,audio/ogg,.mp3,.m4a,.ogg" hidden data-audio></label>${u ? '<button type="button" class="btn sm" data-audio-clear>Remove</button>' : ''}</div>`;
   }
   function imgField(label, key, val) {
     return `<div class="imgfield" data-img="${key}"><span class="help" style="flex-basis:100%;margin:0">${label}</span>${val ? `<img src="${esc(val)}" alt="">` : '<span class="none">No image</span>'}
@@ -254,11 +264,17 @@
     if (it && e.target.closest('[data-rm]')) { if (confirm('Remove this restaurant?')) { S.rest.splice(+it.dataset.i, 1); renderRest(); } }
     const mv = e.target.closest('[data-mv]');
     if (it && mv) { const i = +it.dataset.i, j = i + +mv.dataset.mv; if (j >= 0 && j < S.rest.length) { [S.rest[i], S.rest[j]] = [S.rest[j], S.rest[i]]; renderRest(); } }
+    if (e.target.closest('[data-audio-clear]')) { S.musicUrl = ''; renderMusic(); }
     const clr = e.target.closest('[data-clear]');
     if (clr) setImg(clr.closest('[data-img]'), '');
   });
   $('campForm').addEventListener('change', async (e) => {
     if (e.target.type !== 'file' || !e.target.files[0]) return;
+    if (e.target.hasAttribute('data-audio')) {
+      const fd = new FormData(); fd.append('file', e.target.files[0]);
+      try { toast('Uploading…'); const r = await api('/api/admin/upload', { method: 'POST', body: fd }); S.musicUrl = r.url; renderMusic(); toast('Audio uploaded. Choose “An uploaded audio file” and save.'); } catch (err) { toast(err.message, true); }
+      return;
+    }
     const box = e.target.closest('[data-img]'), fd = new FormData(); fd.append('file', e.target.files[0]);
     try { const r = await api('/api/admin/upload', { method: 'POST', body: fd }); setImg(box, r.url); toast('Image uploaded. Save to apply.'); } catch (err) { toast(err.message, true); }
   });
@@ -274,7 +290,7 @@
     document.querySelectorAll('#campForm [data-t]').forEach(el => { transport[el.dataset.t] = el.type === 'checkbox' ? el.checked : el.value; });
     const imgVal = (k) => { const b = document.querySelector(`#campForm [data-img="${k}"] input[type=hidden]`); return b ? b.value : ''; };
     body.prize_image = imgVal('prize_image'); body.hero_images = [0,1,2,3,4,5,6,7].map(i => imgVal(`hs:${i}`)).filter(Boolean); body.prize_items = $('prizeItemsF').value.split('\n'); transport.logo = imgVal('t:logo'); transport.image = imgVal('t:image');
-    body.transport = transport; body.restaurants = S.rest; body.winners = parseInt(body.winners, 10) || 1;
+    body.transport = transport; body.restaurants = S.rest; body.music_url = S.musicUrl || ''; body.winners = parseInt(body.winners, 10) || 1;
     body.unit_price_cents = Math.round(parseFloat($('unitPrice').value) * 100);
     for (const k of ['min_age', 'entries_per_person', 'claim_days']) { body[k] = parseInt(body[k], 10); if (Number.isNaN(body[k])) delete body[k]; }
     try {

@@ -538,3 +538,18 @@ def test_placeholder_secrets_mean_not_configured(monkeypatch):
     monkeypatch.setenv('SMTP_USER', 'x@example.com')
     monkeypatch.setenv('SMTP_PASSWORD', 'none')
     assert core.smtp_configured() is False
+
+
+def test_music_settings_and_audio_upload(admin, client):
+    import io
+    c = client.get('/api/campaign').json['campaign']
+    assert c['music_source'] == 'youtube' and c['music_youtube'] == 'tfPHaVhsaVU'
+    r = admin.put('/api/admin/campaign', json={'music_youtube': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3'}, headers=ADMIN)
+    assert r.status_code == 200 and r.json['campaign']['music_youtube'] == 'dQw4w9WgXcQ'
+    assert admin.put('/api/admin/campaign', json={'music_youtube': 'not a video'}, headers=ADMIN).status_code == 400
+    up = admin.post('/api/admin/upload', data={'file': (io.BytesIO(b'ID3\x04' + b'\0' * 64), 'song.mp3')}, headers=ADMIN)
+    assert up.status_code == 200 and up.json['url'].endswith('.mp3')
+    assert client.get(up.json['url']).status_code == 200
+    r = admin.put('/api/admin/campaign', json={'music_source': 'upload', 'music_url': up.json['url']}, headers=ADMIN)
+    assert r.status_code == 200 and r.json['campaign']['music_url'] == up.json['url']
+    assert admin.put('/api/admin/campaign', json={'music_url': '/uploads/abc.exe'}, headers=ADMIN).status_code == 400

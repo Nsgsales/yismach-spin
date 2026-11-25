@@ -40,14 +40,53 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
   addEventListener('resize', resize); resize(); frame();
 })();
 
+/* ───────────── background music (starts only from the speaker button) ─────────────
+   YouTube: YouTube's own embedded player, kept visible (as YouTube requires) in a small dock.
+   Upload: an audio file the organization has the rights to, looped quietly. */
+const music = (() => {
+  let cfg = { source: 'off' }, audio = null;
+  const dock = () => $('musicDock');
+  const yt = (cmd, args = []) => { const f = $('musicPlayer').querySelector('iframe'); if (f) f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args }), '*'); };
+  function start() {
+    if (cfg.source === 'youtube' && cfg.youtube) {
+      const d = dock(); $('musicTitle').textContent = cfg.title || 'Now playing';
+      if (!$('musicPlayer').querySelector('iframe')) {
+        const id = encodeURIComponent(cfg.youtube);
+        const f = document.createElement('iframe');
+        f.title = cfg.title || 'Background music'; f.allow = 'autoplay; encrypted-media'; f.referrerPolicy = 'strict-origin-when-cross-origin';
+        f.src = `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&playlist=${id}&enablejsapi=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`;
+        f.addEventListener('load', () => setTimeout(() => yt('setVolume', [35]), 800));
+        $('musicPlayer').appendChild(f);
+      } else yt('playVideo');
+      d.hidden = false;
+    } else if (cfg.source === 'upload' && cfg.url) {
+      if (!audio) { audio = new Audio(cfg.url); audio.loop = true; audio.volume = 0.35; }
+      audio.play().catch(() => {});
+    }
+  }
+  function stop() {
+    if ($('musicPlayer').querySelector('iframe')) yt('pauseVideo');
+    dock().hidden = true;
+    if (audio) audio.pause();
+  }
+  function configure(c) {
+    const next = { source: c.music_source || 'off', youtube: c.music_youtube || '', title: c.music_title || '', url: c.music_url || '' };
+    if (JSON.stringify(next) === JSON.stringify(cfg)) return;
+    stop(); $('musicPlayer').innerHTML = ''; audio = null; cfg = next;
+  }
+  return { start, stop, configure };
+})();
+
 /* ───────────── sound (opt-in, off by default) ───────────── */
 const sound = (() => {
   let ctx = null, on = store.get('yism-sound') === '1', lastTick = 0;
   const btn = $('sound');
   const sync = () => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   const ac = () => (ctx ||= new (window.AudioContext || window.webkitAudioContext)());
-  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; store.set('yism-sound', on ? '1' : '0'); sync(); if (on) { ac().resume(); tick(true); } });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; store.set('yism-sound', on ? '1' : '0'); sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
   sync();
+  // a visitor who turned sound on during an earlier visit: resume music at their first tap (browsers need a tap first)
+  if (on) document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#sound')) music.start(); }, { once: true });
   const env = (n, t, a, d, p) => { n.gain.setValueAtTime(0.0001, t); n.gain.exponentialRampToValueAtTime(p, t + a); n.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
   function tick(force) {
     if (!on) return; const now = performance.now(); if (!force && now - lastTick < 45) return; lastTick = now;
@@ -73,8 +112,9 @@ const sound = (() => {
       }
     });
   }
-  return { tick, whoosh, chime };
+  return { tick, whoosh, chime, off() { if (on) btn.click(); } };
 })();
+$('musicClose').addEventListener('click', () => sound.off());
 
 function celebrate() {
   const fire = window.confetti; if (!fire || reduced) return;
@@ -327,6 +367,7 @@ function renderCampaign(c) {
   const fromRestaurants = (c.restaurants || []).filter(r => r.photo).map(r => ({ img: r.photo, logo: r.logo, name: r.name }));
   const custom = (c.hero_images || []).map(u => ({ img: u }));
   setSlides(c.hero_source === 'custom' || !fromRestaurants.length ? custom : fromRestaurants);
+  music.configure(c);
   $('pending').hidden = $('termsPending').hidden = !!c.prizes_confirmed;
   $('prizeKicker').textContent = c.prizes_confirmed ? 'The grand prize' : 'Proposed prize package';
   if (Array.isArray(c.prize_items) && c.prize_items.length) $('prizeItems').innerHTML = c.prize_items.map(i => `<li>${esc(i)}</li>`).join('');

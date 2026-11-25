@@ -15,7 +15,8 @@ BASE = Path(__file__).resolve().parent
 if os.environ.get('RAFFLE_PAYMENT_MODE', 'sandbox') != 'sandbox':
     raise SystemExit('Live payments are not enabled. Payments must remain in sandbox mode pending approval.')
 
-UPLOAD_TYPES = {b'\x89PNG': '.png', b'\xff\xd8\xff': '.jpg', b'RIFF': '.webp'}
+UPLOAD_TYPES = {b'\x89PNG': '.png', b'\xff\xd8\xff': '.jpg', b'RIFF': '.webp', b'ID3': '.mp3', b'OggS': '.ogg'}
+AUDIO_EXTS = ('.mp3', '.m4a', '.ogg')
 
 
 def create_app(db_path=None):
@@ -33,7 +34,7 @@ def create_app(db_path=None):
         SECRET_KEY=os.environ.get('RAFFLE_SECRET_KEY') or secrets.token_hex(32),
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
         SESSION_COOKIE_SECURE=os.environ.get('RAFFLE_SECURE_COOKIES') == '1',
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=6 * 1024 * 1024)
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=20 * 1024 * 1024)
     production = os.environ.get('RAFFLE_ENV') == 'production'
     if production and (admin_password == 'local-demo-only' or len(admin_password) < 12 or not os.environ.get('RAFFLE_SECRET_KEY')):
         raise SystemExit('Production needs RAFFLE_ADMIN_PASSWORD (12+ characters) and RAFFLE_SECRET_KEY.')
@@ -95,7 +96,7 @@ def create_app(db_path=None):
 
     @app.get('/uploads/<name>')
     def uploaded(name):
-        if not re.fullmatch(r'[a-f0-9]{24}\.(png|jpg|webp)', name):
+        if not re.fullmatch(r'[a-f0-9]{24}\.(png|jpg|webp|mp3|m4a|ogg)', name):
             return '', 404
         return send_from_directory(uploads, name)
 
@@ -728,12 +729,20 @@ def create_app(db_path=None):
         ext = next((e for sig, e in UPLOAD_TYPES.items() if head.startswith(sig)), None)
         if ext == '.webp' and head[8:12] != b'WEBP':
             ext = None
+        if not ext and head[:2] in (b'\xff\xfb', b'\xff\xf3', b'\xff\xf2'):  # MP3 without an ID3 tag
+            ext = '.mp3'
+        if not ext and head[4:8] == b'ftyp':
+            ext = '.m4a'
         if not ext:
-            return jsonify(error='Upload a PNG, JPG or WebP image.'), 400
+            return jsonify(error='Upload a PNG, JPG or WebP image, or an MP3, M4A or OGG audio file.'), 400
+        size = f.stream.seek(0, 2)
+        f.stream.seek(0)
+        if ext not in AUDIO_EXTS and size > 6 * 1024 * 1024:
+            return jsonify(error='Images must be 6 MB or smaller.'), 400
         name = secrets.token_hex(12) + ext
         f.save(uploads / name)
         with connect() as c:
-            core.log(c, actor(), 'image_uploaded', file=name, original=(f.filename or '')[:120])
+            core.log(c, actor(), 'audio_uploaded' if ext in AUDIO_EXTS else 'image_uploaded', file=name, original=(f.filename or '')[:120])
         return jsonify(url='/uploads/' + name)
 
     # ─────────────── drawing ───────────────

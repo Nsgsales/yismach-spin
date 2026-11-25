@@ -57,9 +57,9 @@
       <div id="three" class="three" aria-hidden="true"></div>
       <div class="stage-fallback" id="fallback" hidden><img src="/assets/logo.png" alt=""></div>
       <p class="stage-hint" id="spinHint" aria-live="polite"></p>
-      <button class="sound" id="sound" type="button" aria-pressed="false" title="Sound effects">
+      <button class="sound" id="sound" type="button" aria-pressed="false" title="Music and sound">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l5 6M21 9l-5 6"/></svg>
-        <span class="sr-only">Sound effects</span>
+        <span class="sr-only">Music and sound</span>
       </button>
     </div>
   </div>
@@ -151,6 +151,8 @@
     <p class="credits">Restaurant logos and food photography from each restaurant’s own website, used to identify the participating restaurants. Additional food photography by Urban Gyllström and Caroline Attwood via Unsplash. City photography: “New York Midtown Skyline at night” by Diliff, CC BY-SA 3.0; “New York City at night HDR” by Paulo Barcellos Jr., CC BY-SA 2.0; via Wikimedia Commons.</p>
   </footer>
 </main>
+
+<aside class="music-dock" id="musicDock" hidden aria-label="Background music"><div class="md-head"><span class="md-note" aria-hidden="true">♪</span><span class="md-title" id="musicTitle"></span><button type="button" class="md-close" id="musicClose" aria-label="Stop music">×</button></div><div class="md-player" id="musicPlayer"></div></aside>
 
 <div class="mobile-bar" id="mobileBar">
   <div><strong id="mbRemaining">—</strong> left · from <span data-unit>$1</span></div>
