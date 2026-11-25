@@ -337,6 +337,7 @@ mark.ph{background:rgba(255,181,71,.14);color:#ffc976;border:1px dashed rgba(255
 /* reveal */
 .reveal-layer{position:fixed;inset:0;z-index:70;display:flex;padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .reveal-layer>.reveal-card{margin:auto}
+.r-sound{position:absolute;top:14px;right:14px;z-index:3}
 .reveal-backdrop{position:fixed;background:radial-gradient(60% 60% at 50% 45%,rgba(60,44,16,.55),rgba(3,3,6,.88))}
 .reveal-card{position:relative;width:min(520px,100%);text-align:center;padding:40px 30px 30px;border-radius:30px;border:1px solid rgba(236,210,154,.3);background:linear-gradient(170deg,rgba(255,240,205,.09),transparent 45%),rgba(12,13,19,.9);box-shadow:0 60px 140px -40px #000,0 0 120px -30px rgba(207,169,95,.45)}
 #rLetter{font:900 18px/1 'Frank Ruhl Libre',serif;color:var(--champ-1);letter-spacing:0}

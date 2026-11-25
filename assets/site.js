@@ -98,10 +98,11 @@ const music = (() => {
 /* ───────────── sound (opt-in, off by default) ───────────── */
 const sound = (() => {
   let ctx = null, on = false, lastTick = 0, userOff = false;
-  const btn = $('sound');
-  const sync = () => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const btns = [$('sound'), $('rSound')];  // nav button + the one on the result card
+  const sync = () => btns.forEach(b => b.setAttribute('aria-pressed', on ? 'true' : 'false'));
   const ac = () => (ctx ||= new (window.AudioContext || window.webkitAudioContext)());
-  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; if (!on && e.isTrusted) userOff = true; sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
+  function toggle(byUser) { on = !on; if (!on && byUser) userOff = true; sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); }
+  btns.forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); toggle(e.isTrusted); }));
   sync();
   const env = (n, t, a, d, p) => { n.gain.setValueAtTime(0.0001, t); n.gain.exponentialRampToValueAtTime(p, t + a); n.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
   function tick(force) {
@@ -128,7 +129,7 @@ const sound = (() => {
       }
     });
   }
-  return { tick, whoosh, chime, off() { userOff = true; if (on) btn.click(); }, on() { if (!on) btn.click(); }, get userOff() { return userOff; } };
+  return { tick, whoosh, chime, off() { userOff = true; if (on) toggle(true); }, on() { if (!on) toggle(false); }, get userOff() { return userOff; } };
 })();
 // "autostart": the music starts when the dreidel starts spinning (see runSpin); the Music button works any time.
 $('musicClose').addEventListener('click', () => sound.off());
