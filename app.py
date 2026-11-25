@@ -149,6 +149,47 @@ def create_app(db_path=None):
             data['legal_draft'] = camp.get('legal_approval_status') != 'approved'
             return jsonify(campaign=data, status=public_status(c))
 
+    # ─────────────── share-and-earn links ───────────────
+    signup_attempts = defaultdict(deque)
+
+    def ambassador_public(c, amb, camp):
+        sold, _ = core.ambassador_stats(c, amb)
+        return dict(code=amb['code'], first_name=amb['name'].split()[0][:40], sold=sold,
+                    threshold=int(camp['referral_threshold']), reward=camp['referral_reward'],
+                    earned=sold >= int(camp['referral_threshold']), link=request.host_url.rstrip('/') + '/?ref=' + amb['code'])
+
+    @app.get('/api/ambassadors/<code>')
+    def ambassador_get(code):
+        with connect() as c:
+            camp = core.get_campaign(c)
+            amb = core.ambassador_by_code(c, code)
+            if not amb or not camp.get('referral_enabled'):
+                return jsonify(error='Link not found.'), 404
+            return jsonify(ambassador_public(c, amb, camp))
+
+    @app.post('/api/ambassadors')
+    def ambassador_signup():
+        ip = request.remote_addr or '?'
+        q, now = signup_attempts[ip], time.time()
+        while q and now - q[0] > 3600:
+            q.popleft()
+        if len(q) >= 20:
+            return jsonify(error='Too many requests. Please try again later.'), 429
+        d = request.get_json(silent=True) or {}
+        name, email = str(d.get('name', '')).strip(), str(d.get('email', '')).strip()
+        phone = core.clean_phone(d.get('phone')) if d.get('phone') else ''
+        if not (1 <= len(name) <= 120 and len(email) <= 254 and core.EMAIL_RE.fullmatch(email)) or phone is None:
+            return jsonify(error='Please enter your name and a valid email address.'), 400
+        q.append(now)
+        with connect() as c:
+            camp = core.get_campaign(c)
+            if not camp.get('referral_enabled'):
+                return jsonify(error='Sharing links are not available.'), 404
+            amb, created = core.get_or_create_ambassador(c, name, email, phone, 'self')
+            if created:
+                core.log(c, 'public', 'ambassador_created', code=amb['code'], email=email)
+            return jsonify(ambassador_public(c, amb, camp))
+
     def latest_drawing(c):
         d = c.execute('SELECT drawn_at, winners FROM drawings ORDER BY id DESC LIMIT 1').fetchone()
         return {'drawn_at': d['drawn_at'], 'winners': json.loads(d['winners'])} if d and d['drawn_at'] else None
@@ -190,9 +231,19 @@ def create_app(db_path=None):
         if d.get('consent_rules') is not True:
             return jsonify(error='Please confirm your eligibility and agree to the Official Rules.'), 400
         marketing = 1 if d.get('marketing') is True else 0
+        ref = str(d.get('ref') or '').strip().lower()[:40]
+
+        def my_link(camp):
+            if not camp.get('referral_enabled'):
+                return None
+            with connect() as c2:
+                amb, created = core.get_or_create_ambassador(c2, name, email, phone, 'entrant')
+                if created:
+                    core.log(c2, 'public', 'ambassador_created', code=amb['code'], email=email, source='entrant')
+                return ambassador_public(c2, amb, camp)
 
         def result(entry, camp):
-            return jsonify(number=entry['number'], amount=entry['amount_cents'] / 100,
+            return jsonify(my_link=my_link(camp), number=entry['number'], amount=entry['amount_cents'] / 100,
                            amount_display=core.money(entry['amount_cents']),
                            confirmation=core.confirmation_code(entry['number']), authorization_id=entry['authorization_id'],
                            payment_status=entry['status'], payment_mode=core.PAYMENT_MODE, simulated=gateway.name != 'stripe_test', processor=gateway.name,
@@ -253,12 +304,15 @@ def create_app(db_path=None):
                 return jsonify(error='All entries have been claimed. Your authorization was released.'), 409
             n = secrets.choice(available)
             amount = n * unit
+            ref_amb = core.ambassador_by_code(c, ref) if ref and camp.get('referral_enabled') else None
+            if ref_amb and ref_amb['email'].lower() == email.lower():
+                ref_amb = None  # your own link doesn't count
             cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,authorization_id,
-                                 method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in)
-                               VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?)''',
+                                 method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in,ref_code)
+                               VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?,?)''',
                             (n, name, email, phone, rid, amount, auth_id, core.now_iso(),
                              core.auth_text(camp, info) + ' | Eligibility and Official Rules accepted.',
-                             camp.get('rules_version'), camp.get('campaign_number'), marketing))
+                             camp.get('rules_version'), camp.get('campaign_number'), marketing, ref_amb['code'] if ref_amb else None))
             entry_id = cur.lastrowid
             core.log(c, 'public', 'number_assigned', entry_id=entry_id, number=n, amount_cents=amount,
                      rules_version=camp.get('rules_version'), marketing_opt_in=marketing)
@@ -272,6 +326,13 @@ def create_app(db_path=None):
             core.log(c, 'public', 'capture_' + ('succeeded' if ok_c else 'failed'), entry_id=entry_id, amount_cents=amount)
             c.commit()
             entry = c.execute('SELECT * FROM entries WHERE id=?', (entry_id,)).fetchone()
+
+            if ok_c and ref_amb:
+                sold, _ = core.ambassador_stats(c, ref_amb)
+                if sold == int(camp['referral_threshold']):
+                    core.log(c, 'system', 'referral_reward_earned', code=ref_amb['code'], name=ref_amb['name'], sold=sold)
+                    c.execute("UPDATE ambassadors SET reward_status='earned' WHERE id=? AND reward_status='none'", (ref_amb['id'],))
+                c.commit()
 
             # 4. Confirmation email (logged to the outbox unless SMTP is configured).
             if ok_c:
@@ -627,6 +688,45 @@ def create_app(db_path=None):
         finally:
             c.close()
 
+    @app.get('/api/admin/ambassadors')
+    def admin_ambassadors():
+        with connect() as c:
+            camp = core.get_campaign(c)
+            th = int(camp['referral_threshold'])
+            rows = []
+            for a in c.execute('SELECT * FROM ambassadors ORDER BY id DESC'):
+                sold, raised = core.ambassador_stats(c, a)
+                rows.append(dict(a, sold=sold, raised=raised / 100, earned=sold >= th,
+                                 link=request.host_url.rstrip('/') + '/?ref=' + a['code']))
+            rows.sort(key=lambda r: (-r['sold'], -r['raised'], r['id']))
+        return jsonify(ambassadors=rows, threshold=th, reward=camp['referral_reward'])
+
+    @app.post('/api/admin/ambassadors')
+    def admin_ambassador_add():
+        d = request.get_json(silent=True) or {}
+        name, email = str(d.get('name', '')).strip(), str(d.get('email', '')).strip()
+        phone = core.clean_phone(d.get('phone')) if d.get('phone') else ''
+        if not (1 <= len(name) <= 120 and core.EMAIL_RE.fullmatch(email)) or phone is None:
+            return jsonify(error='Enter a name and a valid email.'), 400
+        with connect() as c:
+            amb, created = core.get_or_create_ambassador(c, name, email, phone, 'admin')
+            core.log(c, actor(), 'ambassador_created' if created else 'ambassador_exists', code=amb['code'])
+        return jsonify(ok=True, code=amb['code'], created=created)
+
+    @app.post('/api/admin/ambassadors/<int:aid>/reward')
+    def admin_ambassador_reward(aid):
+        d = request.get_json(silent=True) or {}
+        status = d.get('status')
+        if status not in ('none', 'earned', 'fulfilled'):
+            return jsonify(error='Unknown status.'), 400
+        with connect() as c:
+            if not c.execute('SELECT 1 FROM ambassadors WHERE id=?', (aid,)).fetchone():
+                return jsonify(error='Not found.'), 404
+            c.execute('UPDATE ambassadors SET reward_status=?, fulfilled_at=? WHERE id=?',
+                      (status, core.now_iso() if status == 'fulfilled' else None, aid))
+            core.log(c, actor(), 'ambassador_reward_' + status, ambassador_id=aid)
+        return jsonify(ok=True)
+
     @app.post('/api/admin/new-campaign')
     def new_campaign():
         """Reuse the platform: archive this campaign's full database, then clear entries, payments, emails and the drawing.
@@ -656,6 +756,7 @@ def create_app(db_path=None):
             for t in ('entries', 'transactions', 'emails', 'drawings'):
                 c.execute(f'DELETE FROM {t}')
             c.execute("DELETE FROM settings WHERE key='checklist'")
+            c.execute("UPDATE ambassadors SET reward_status='none', fulfilled_at=NULL")  # links carry over; counts restart
             camp.update(campaign_number=number, start_at='', end_at='', drawing_date='', winner_info='', sales_paused=True,
                         legal_approval_status='not_started', processor_approval_status='not_started')
             c.execute("UPDATE settings SET value=? WHERE key='campaign'", (json.dumps(camp),))

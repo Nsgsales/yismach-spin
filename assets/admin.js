@@ -35,7 +35,7 @@
     S.tab = tab;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
     document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
-    ({ overview: loadOverview, entries: loadOverview, payments: loadTx, emails: loadMails, drawing: loadDrawing, campaign: loadCampaign, checklist: loadChecklist, activity: loadActivity }[tab])();
+    ({ overview: loadOverview, entries: loadOverview, payments: loadTx, emails: loadMails, drawing: loadDrawing, ambassadors: loadAmb, campaign: loadCampaign, checklist: loadChecklist, activity: loadActivity }[tab])();
     history.replaceState(null, '', '#' + tab);
   }
 
@@ -183,12 +183,18 @@
         <div class="fgrid" style="margin-top:14px">${F('Main headline', 'headline', 'textarea', 'Each sentence becomes its own line; the last line is set in gold.')}${F('Introduction', 'intro', 'textarea')}${F('Tagline', 'tagline', 'textarea')}${F('WhatsApp share text', 'share_text', 'textarea')}</div></fieldset>
       <fieldset><legend>Prize</legend><div class="fgrid">${F('Prize heading', 'prize_title')}${F('Prize description', 'prize_description', 'textarea')}<label>Prize highlights (one per line)<textarea id="prizeItemsF">${esc((c.prize_items || []).join('\n'))}</textarea></label></div>
         <label style="margin-top:16px">Top-of-page slideshow shows<select data-k="hero_source"><option value="restaurants">Each restaurant’s photo and logo (from the list below)</option><option value="custom">The custom slides below</option></select></label>
-        <p class="help" style="margin-top:12px">Custom slides (dishes fade in and out behind the headline; use restaurant photos with permission)</p><div class="fgrid">${[0,1,2,3,4,5,6,7].map(i => imgField(`Slide ${i + 1}`, `hs:${i}`, (c.hero_images || [])[i])).join('')}</div><div style="margin-top:14px">${imgField('Prize image', 'prize_image', c.prize_image)}</div>
+        <p class="help" style="margin-top:12px">Custom slides (dishes fade in and out behind the headline; use restaurant photos with permission)</p><div class="fgrid">${[0,1,2,3,4,5,6,7].map(i => imgField(`Slide ${i + 1}`, `hs:${i}`, (c.hero_images || [])[i])).join('')}</div><div class="fgrid" style="margin-top:14px">${imgField('Prize image', 'prize_image', c.prize_image)}${imgField('Picture on the number-reveal card (e.g. the Rav, “בשמחה תמיד”)', 'reveal_image', c.reveal_image)}</div>
+        <div class="fgrid" style="margin-top:10px">${F('Caption under that picture (optional)', 'reveal_caption')}</div>
         <label class="check" style="margin-top:14px"><input type="checkbox" data-k="prizes_confirmed"> Restaurant participation and prize terms are confirmed (hides the “subject to confirmation” notice)</label></fieldset>
+      <fieldset><legend>Share &amp; earn links</legend>
+        <p class="help" style="margin-top:0">Every donor gets a personal link after spinning, and anyone can get one in the “Share &amp; earn” section. Paid entries made by other people through a link count toward the thank-you reward. See the Ambassadors tab for the leaderboard.</p>
+        <label class="check"><input type="checkbox" data-k="referral_enabled"> Offer personal share links and the thank-you reward</label>
+        <div class="fgrid" style="margin-top:14px">${F('Entries needed for the reward', 'referral_threshold', 'number')}${F('Reward', 'referral_reward', 'text', 'e.g. A Tomahawk steak from Gourmet Glatt')}</div>
+        <label style="margin-top:14px">Reward terms (shown under the share box)<textarea data-k="referral_terms"></textarea></label></fieldset>
       <fieldset><legend>Background music</legend>
         <p class="help" style="margin-top:0">Music starts only when a visitor taps the speaker button (browsers block music that plays by itself). A YouTube song plays in YouTube’s own small player, which stays visible, as YouTube requires. Upload an audio file only if the organization has the rights to it.</p>
         <div class="fgrid"><label>Music<select data-k="music_source"><option value="youtube">A YouTube video</option><option value="upload">An uploaded audio file</option><option value="off">No music</option></select></label>
-        <label class="check" style="align-self:end"><input type="checkbox" data-k="music_autostart"> Start the music on the visitor’s first tap or click anywhere on the page</label>
+        <label class="check" style="align-self:end"><input type="checkbox" data-k="music_autostart"> Start the music when the dreidel starts spinning</label>
         ${F('YouTube link', 'music_youtube', 'text', 'Paste the video link, e.g. https://www.youtube.com/watch?v=…')}${F('Song title shown in the player', 'music_title')}</div>
         <div style="margin-top:14px" class="audiofield" id="musicField"></div></fieldset>
       <fieldset><legend>Restaurants &amp; sponsors</legend><div class="rlist" id="rlist"></div><button type="button" class="btn" id="addR" style="margin-top:12px">+ Add restaurant</button></fieldset>
@@ -290,16 +296,50 @@
     document.querySelectorAll('#campForm [data-k]').forEach(el => { body[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; });
     document.querySelectorAll('#campForm [data-t]').forEach(el => { transport[el.dataset.t] = el.type === 'checkbox' ? el.checked : el.value; });
     const imgVal = (k) => { const b = document.querySelector(`#campForm [data-img="${k}"] input[type=hidden]`); return b ? b.value : ''; };
-    body.prize_image = imgVal('prize_image'); body.hero_images = [0,1,2,3,4,5,6,7].map(i => imgVal(`hs:${i}`)).filter(Boolean); body.prize_items = $('prizeItemsF').value.split('\n'); transport.logo = imgVal('t:logo'); transport.image = imgVal('t:image');
+    body.prize_image = imgVal('prize_image'); body.reveal_image = imgVal('reveal_image'); body.hero_images = [0,1,2,3,4,5,6,7].map(i => imgVal(`hs:${i}`)).filter(Boolean); body.prize_items = $('prizeItemsF').value.split('\n'); transport.logo = imgVal('t:logo'); transport.image = imgVal('t:image');
     body.transport = transport; body.restaurants = S.rest; body.music_url = S.musicUrl || ''; body.winners = parseInt(body.winners, 10) || 1;
     body.unit_price_cents = Math.round(parseFloat($('unitPrice').value) * 100);
-    for (const k of ['min_age', 'entries_per_person', 'claim_days']) { body[k] = parseInt(body[k], 10); if (Number.isNaN(body[k])) delete body[k]; }
+    for (const k of ['min_age', 'entries_per_person', 'claim_days', 'referral_threshold']) { body[k] = parseInt(body[k], 10); if (Number.isNaN(body[k])) delete body[k]; }
     try {
       const newMax = parseInt($('maxTickets').value, 10);
       if (newMax !== S.maxLoaded) await api('/api/admin/settings', { method: 'POST', body: { max_tickets: newMax } });
       await api('/api/admin/campaign', { method: 'PUT', body }); S.data = null; S.campaign = null;
       toast('Campaign saved'); loadCampaign();
     } catch (err) { toast(err.message, true); }
+  });
+
+  /* ambassadors (share-and-earn links) */
+  const REWARD = { none: 'In progress', earned: 'Earned: arrange reward', fulfilled: 'Given' };
+  async function loadAmb() {
+    const d = await api('/api/admin/ambassadors'); S.amb = d;
+    $('ambIntro').textContent = `${d.ambassadors.length} personal links. Reward: ${d.reward} for ${d.threshold} paid entries by other people through a link. Donors get a link automatically after they spin; you can also create one here for a volunteer.`;
+    renderAmb();
+  }
+  function renderAmb() {
+    if (!S.amb) return;
+    const q = $('ambQ').value.trim().toLowerCase(), th = S.amb.threshold;
+    const rows = S.amb.ambassadors.filter(a => !q || `${a.name} ${a.email} ${a.code}`.toLowerCase().includes(q));
+    $('ambRows').innerHTML = rows.map(a => {
+      const st = a.reward_status === 'none' && a.earned ? 'earned' : a.reward_status;
+      return `<tr><td>${esc(a.name)}<span class="sub">${esc(a.email)}${a.phone ? ' · ' + esc(a.phone) : ''}</span></td>
+      <td class="mono"><a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.code)}</a> <button class="btn sm" data-copy="${esc(a.link)}">Copy</button></td>
+      <td class="num"><b>${a.sold}</b> / ${th}${a.earned ? ' <span class="chip paid">reached</span>' : ''}</td>
+      <td class="num">${money(a.raised)}</td>
+      <td><select data-reward="${a.id}">${Object.entries(REWARD).map(([k, v]) => `<option value="${k}" ${k === st ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td class="num">${esc((a.created || '').slice(0, 10))}<span class="sub">${esc(a.source)}</span></td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="muted">No links yet.</td></tr>';
+  }
+  $('ambQ').addEventListener('input', renderAmb);
+  $('ambRefresh').addEventListener('click', () => loadAmb().then(() => toast('Updated')));
+  $('ambRows').addEventListener('click', async (e) => { const b = e.target.closest('[data-copy]'); if (b) { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Link copied'); } catch { prompt('Copy this link:', b.dataset.copy); } } });
+  $('ambRows').addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-reward]'); if (!sel) return;
+    try { await api(`/api/admin/ambassadors/${sel.dataset.reward}/reward`, { method: 'POST', body: { status: sel.value } }); toast('Reward status saved'); loadAmb(); } catch (err) { toast(err.message, true); }
+  });
+  $('ambAdd').addEventListener('click', async () => {
+    try { const r = await api('/api/admin/ambassadors', { method: 'POST', body: { name: $('ambName').value, email: $('ambEmail').value, phone: $('ambPhone').value } });
+      toast(r.created ? 'Link created' : 'This email already has a link'); $('ambName').value = $('ambEmail').value = $('ambPhone').value = ''; loadAmb(); }
+    catch (err) { toast(err.message, true); }
   });
 
   /* launch checklist */

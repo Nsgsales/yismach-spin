@@ -97,11 +97,11 @@ const music = (() => {
 
 /* ───────────── sound (opt-in, off by default) ───────────── */
 const sound = (() => {
-  let ctx = null, on = false, lastTick = 0;
+  let ctx = null, on = false, lastTick = 0, userOff = false;
   const btn = $('sound');
   const sync = () => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   const ac = () => (ctx ||= new (window.AudioContext || window.webkitAudioContext)());
-  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; if (!on && e.isTrusted) userOff = true; sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
   sync();
   const env = (n, t, a, d, p) => { n.gain.setValueAtTime(0.0001, t); n.gain.exponentialRampToValueAtTime(p, t + a); n.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
   function tick(force) {
@@ -128,18 +128,9 @@ const sound = (() => {
       }
     });
   }
-  return { tick, whoosh, chime, off() { if (on) btn.click(); }, on() { if (!on) btn.click(); } };
+  return { tick, whoosh, chime, off() { userOff = true; if (on) btn.click(); }, on() { if (!on) btn.click(); }, get userOff() { return userOff; } };
 })();
-// Browsers only allow sound after the visitor interacts, so "autostart" means: the first tap, click or key press anywhere
-// on the page starts the music (unless that tap was on the Music button or the player itself, which handle themselves).
-(() => {
-  const first = (e) => {
-    document.removeEventListener('click', first, true); document.removeEventListener('keydown', first, true);
-    if (!music.autostart || (e.target.closest && e.target.closest('#sound, #musicDock'))) return;
-    sound.on();
-  };
-  document.addEventListener('click', first, true); document.addEventListener('keydown', first, true);
-})();
+// "autostart": the music starts when the dreidel starts spinning (see runSpin); the Music button works any time.
 $('musicClose').addEventListener('click', () => sound.off());
 
 function celebrate() {
@@ -544,8 +535,68 @@ function tweenNumber(el, to) {
   if (!gsap || isNaN(from) || reduced) { el.textContent = to; return; }
   const o = { v: from }; gsap.to(o, { v: to, duration: 1.1, ease: 'power2.out', onUpdate: () => { el.textContent = Math.round(o.v); } });
 }
+/* ───────────── share-and-earn links ───────────── */
+const referral = (() => {
+  let incoming = null;  // the link this visitor arrived through
+  const params = new URLSearchParams(location.search), fromUrl = (params.get('ref') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
+  if (fromUrl) { store.set('ym-ref', fromUrl); params.delete('ref'); history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash); }
+  const code = fromUrl || store.get('ym-ref') || '';
+  function fillBox(box, a, c) {
+    box.hidden = false;
+    box.querySelector('[data-sb-sold]').textContent = a.sold;
+    box.querySelector('[data-sb-th]').textContent = a.threshold;
+    box.querySelector('[data-sb-bar]').style.width = Math.min(100, a.sold / a.threshold * 100) + '%';
+    box.querySelector('[data-sb-link]').value = a.link;
+    const text = `${(c && c.share_text) || 'Spin the dreidel and win a year of date nights:'} ${a.link}`;
+    box.querySelector('[data-sb-wa]').href = 'https://wa.me/?text=' + encodeURIComponent(text);
+    if (a.earned) box.querySelector('.sb-progress').innerHTML = `<strong>${a.sold}</strong> entries through your link. <b>You’ve earned it!</b> We’ll be in touch.`;
+  }
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-sb-copy]'); if (!b) return;
+    const inp = b.parentElement.querySelector('input');
+    try { await navigator.clipboard.writeText(inp.value); } catch { inp.select(); document.execCommand && document.execCommand('copy'); }
+    b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1600);
+  });
+  async function lookup(c) {
+    if (!c) return null;
+    try { const r = await fetch('/api/ambassadors/' + encodeURIComponent(c)); return r.ok ? r.json() : null; } catch { return null; }
+  }
+  async function init(camp) {
+    const on = !!camp.referral_enabled;
+    $('earn').hidden = !on;
+    $$('[data-earn-th]').forEach(e => { e.textContent = camp.referral_threshold; });
+    $$('[data-earn-reward]').forEach(e => { e.textContent = camp.referral_reward; });
+    $$('[data-earn-terms]').forEach(e => { e.textContent = camp.referral_terms || ''; });
+    if (!on) return;
+    if (code && !incoming) {
+      incoming = await lookup(code);
+      if (incoming) { $('refName').textContent = incoming.first_name; $('refChip').hidden = false; } else store.set('ym-ref', '');
+    }
+    const mine = store.get('ym-my-ref');
+    if (mine) { const a = await lookup(mine); if (a) { fillBox($('earn').querySelector('[data-sharebox]'), a, camp); $('earnForm').hidden = true; } }
+  }
+  $('earnForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('earnErr').textContent = '';
+    try {
+      const r = await fetch('/api/ambassadors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('earnName').value.trim(), email: $('earnEmail').value.trim() }) });
+      const a = await r.json(); if (!r.ok) throw new Error(a.error || 'Please try again.');
+      store.set('ym-my-ref', a.code); $('earnForm').hidden = true; fillBox($('earn').querySelector('[data-sharebox]'), a, state.campaign);
+    } catch (err) { $('earnErr').textContent = err.message; }
+  });
+  return {
+    init,
+    get code() { return incoming ? incoming.code : ''; },
+    showMine(a) {
+      $('share').hidden = !!a;
+      if (!a) { $('rEarn').hidden = true; return; }
+      store.set('ym-my-ref', a.code); $('rEarn').hidden = false; fillBox($('rEarn').querySelector('[data-sharebox]'), a, state.campaign);
+      const box = $('earn').querySelector('[data-sharebox]'); fillBox(box, a, state.campaign); $('earnForm').hidden = true;
+    },
+  };
+})();
+
 async function loadCampaign() {
-  try { const r = await fetch('/api/campaign', { cache: 'no-store' }); const d = await r.json(); renderCampaign(d.campaign); renderStatus(d.status); revealSections(); }
+  try { const r = await fetch('/api/campaign', { cache: 'no-store' }); const d = await r.json(); renderCampaign(d.campaign); renderStatus(d.status); revealSections(); referral.init(d.campaign); }
   catch { $('remaining').textContent = '—'; }
 }
 async function refreshStatus() { try { const r = await fetch('/api/status', { cache: 'no-store' }); if (r.ok) renderStatus(await r.json()); } catch {} }
@@ -640,7 +691,7 @@ $('checkout').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!$('consent').checked) { $('error').textContent = 'Please confirm the payment authorization to spin.'; return; }
   if (!$('consentRules').checked) { $('error').textContent = 'Please confirm your eligibility and agree to the Official Rules.'; return; }
-  const payload = { name: $('name').value.trim(), email: $('email').value.trim(), phone: $('phone').value.trim(), consent: true, consent_rules: true, marketing: $('marketing').checked, request_id: state.requestId };
+  const payload = { name: $('name').value.trim(), email: $('email').value.trim(), phone: $('phone').value.trim(), consent: true, consent_rules: true, marketing: $('marketing').checked, ref: referral.code, request_id: state.requestId };
   const go = $('go'), label = go.querySelector('span'), txt = label.textContent;
   try {
     go.disabled = true; if (state.processor === 'stripe_test') label.textContent = 'Authorizing card…';
@@ -656,6 +707,7 @@ async function runSpin(payload) {
   state.busy = true; $$('[data-open-checkout]').forEach(b => { b.disabled = true; }); updateBar();
   const d3 = dreidel || await dreidelReady;
   $('spin').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+  if (music.autostart && !sound.userOff) sound.on();  // music starts with the spin (unless the visitor turned it off)
   setHint(''); d3.rev(); counter.start();
   let data;
   try {
@@ -685,6 +737,8 @@ function reveal(d) {
   counter.hide(); setHint(`Landed on ${letter} · № ${d.number}`);
   sound.chime(); celebrate();
   $('rLetter').textContent = letter;
+  const art = (state.campaign || {}).reveal_image, cap = (state.campaign || {}).reveal_caption || '';
+  $('rArt').hidden = !art; if (art) { $('rArtImg').src = art; $('rArtCap').textContent = cap; $('rArtCap').hidden = !cap; }
   $('rConf').textContent = d.confirmation; $('rAuth').textContent = d.authorization_id || '—';
   const st = $('rStatus'); st.classList.remove('warn');
   if (d.payment_status === 'paid') {
@@ -693,7 +747,9 @@ function reveal(d) {
       : `Donation received (${mode}). Your entry confirmation is ready; email delivery isn’t set up yet.`;
   } else { st.classList.add('warn'); st.textContent = 'Your number is held, but the payment didn’t go through. Our team will contact you to complete it.'; }
   const c = state.campaign || {};
-  $('share').href = 'https://wa.me/?text=' + encodeURIComponent(`${c.share_text || 'Spin the dreidel and win a year of date nights:'} ${location.origin}/`);
+  const myLink = d.my_link ? d.my_link.link : `${location.origin}/`;
+  $('share').href = 'https://wa.me/?text=' + encodeURIComponent(`${c.share_text || 'Spin the dreidel and win a year of date nights:'} ${myLink}`);
+  referral.showMine(d.my_link);
   const layer = $('reveal'); layer.hidden = false; document.body.style.overflow = 'hidden'; updateBar();
   setTimeout(() => $('again').focus({ preventScroll: true }), 50);
   if (!gsap || reduced) { $('rNumber').textContent = d.number; $('rAmount').textContent = d.amount_display; return; }
@@ -701,6 +757,7 @@ function reveal(d) {
   const tl = gsap.timeline();
   tl.fromTo('.reveal-backdrop', { opacity: 0 }, { opacity: 1, duration: 0.5 })
     .fromTo('.reveal-card', { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out' }, 0.1);
+  if (art) tl.fromTo('.r-art', { opacity: 0, scale: 0.6, rotate: -6 }, { opacity: 1, scale: 1, rotate: 0, duration: 0.9, ease: 'back.out(1.8)' }, 0.25);
   tl.call(() => { $('rNumber').textContent = d.number; }, null, 0.25);
   tl.fromTo('.big-number', { scale: 1.25 }, { scale: 1, duration: 0.9, ease: 'elastic.out(1,0.5)' });
   const amt = { v: 0 }, cents = Math.round(d.amount * 100);

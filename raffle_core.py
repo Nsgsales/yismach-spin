@@ -52,8 +52,15 @@ DEFAULT_CAMPAIGN = {
     "prize_items": ["Dinner for two at 10 premier kosher restaurants.", "A $150 Uber gift card for each restaurant night.",
                     "$1,500 in total Uber gift cards.", "One extraordinary year of fine dining."],
     "prize_image": "",
+    "reveal_image": "", "reveal_caption": "",  # shown on the card that reveals the donor's number
     "hero_images": [f"/assets/img/hero-{i}.jpg" for i in (1, 6, 2, 7, 5)],
     "hero_source": "restaurants",
+    # Share-and-earn links: every participant (or anyone who signs up) gets a personal link. Paid entries made by
+    # other people through it count toward a thank-you reward. The donor's own odds are never affected.
+    "referral_enabled": True, "referral_threshold": 10,
+    "referral_reward": "A Tomahawk steak from Gourmet Glatt",
+    "referral_terms": ("Counts paid entries made by other people through your personal link. Your own entries don't count. "
+                       "One reward per person. Rewards are arranged by the shul after the campaign."),
     # Background music, started only when a visitor taps the speaker button (browsers block autoplay with sound).
     # youtube: YouTube's own visible embedded player (allowed by YouTube); upload: an audio file the organization has rights to.
     "music_source": "youtube", "music_youtube": "tfPHaVhsaVU", "music_autostart": True,
@@ -112,7 +119,7 @@ DEFAULT_CAMPAIGN = {
 }
 
 PUBLIC_CAMPAIGN_KEYS = ["org_name", "presents", "title", "subtitle", "headline", "intro", "tagline", "prize_title",
-                        "prize_description", "prize_items", "prize_image", "hero_images", "hero_source", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
+                        "prize_description", "prize_items", "prize_image", "reveal_image", "reveal_caption", "hero_images", "hero_source", "referral_enabled", "referral_threshold", "referral_reward", "referral_terms", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
                         "start_at", "end_at", "prizes_confirmed", "share_text",
                         "org_legal_name", "org_nonprofit_status", "org_ein", "org_address", "org_email", "org_phone",
                         "campaign_purpose", "campaign_number", "rules_version", "free_entry_enabled", "min_age",
@@ -166,6 +173,11 @@ ENTRIES_V3_COLS = ['id', 'number', 'name', 'email', 'phone', 'request_id', 'amou
 
 SCHEMA = [
     'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    '''CREATE TABLE IF NOT EXISTS ambassadors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL,
+        phone TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'self', reward_status TEXT NOT NULL DEFAULT 'none',
+        fulfilled_at TEXT, notes TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP)''',
+    'CREATE UNIQUE INDEX IF NOT EXISTS ambassadors_email ON ambassadors(lower(email))',
     '''CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER, request_id TEXT, kind TEXT NOT NULL,
         amount_cents INTEGER NOT NULL, status TEXT NOT NULL, provider_ref TEXT, message TEXT,
@@ -222,6 +234,9 @@ def init_db(path):
             c.execute("INSERT INTO activity(actor,action,detail) VALUES('system','migrated_entries','{\"to\": \"v4\"}')")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS entries_number_active ON entries(number) WHERE status != 'released'")
         c.execute('CREATE INDEX IF NOT EXISTS entries_email ON entries(email)')
+        if 'ref_code' not in {r[1] for r in c.execute('PRAGMA table_info(entries)')}:
+            c.execute('ALTER TABLE entries ADD COLUMN ref_code TEXT')
+        c.execute('CREATE INDEX IF NOT EXISTS entries_ref ON entries(ref_code)')
 
 
 def log(c, actor, action, **detail):
@@ -281,6 +296,38 @@ def summary(c):
 
 
 ELIGIBLE_STATUSES = ('paid', 'free')
+
+CODE_RE = re.compile(r'[a-z0-9-]{3,40}')
+
+
+def ambassador_by_code(c, code):
+    code = str(code or '').strip().lower()
+    return c.execute('SELECT * FROM ambassadors WHERE code=?', (code,)).fetchone() if CODE_RE.fullmatch(code) else None
+
+
+def new_ambassador_code(c, name):
+    base = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')[:20] or 'friend'
+    for _ in range(50):
+        code = f"{base}-{secrets.token_hex(2)}"
+        if not c.execute('SELECT 1 FROM ambassadors WHERE code=?', (code,)).fetchone():
+            return code
+    return 'friend-' + secrets.token_hex(5)
+
+
+def get_or_create_ambassador(c, name, email, phone='', source='self'):
+    row = c.execute('SELECT * FROM ambassadors WHERE lower(email)=lower(?)', (email,)).fetchone()
+    if row:
+        return row, False
+    code = new_ambassador_code(c, name)
+    c.execute('INSERT INTO ambassadors(code,name,email,phone,source) VALUES(?,?,?,?,?)', (code, name, email, phone or '', source))
+    return c.execute('SELECT * FROM ambassadors WHERE code=?', (code,)).fetchone(), True
+
+
+def ambassador_stats(c, amb):
+    """Paid entries by other people through this link."""
+    r = c.execute("""SELECT COUNT(*), COALESCE(SUM(amount_cents),0) FROM entries
+                     WHERE ref_code=? AND status='paid' AND lower(email)!=lower(?)""", (amb['code'], amb['email'])).fetchone()
+    return r[0], r[1]
 
 
 def org_display(campaign):
@@ -548,7 +595,7 @@ def validate_campaign(data, current):
     """Merge admin edits into the campaign config with type checks."""
     out = copy.deepcopy(current)
     text_keys = ['org_name', 'presents', 'title', 'subtitle', 'headline', 'intro', 'tagline', 'prize_title',
-                 'prize_description', 'prize_image', 'drawing_date', 'start_at', 'end_at', 'share_text',
+                 'prize_description', 'prize_image', 'reveal_image', 'reveal_caption', 'drawing_date', 'start_at', 'end_at', 'share_text',
                  'email_subject', 'email_body']
     for k in text_keys:
         if k in data:
@@ -567,7 +614,10 @@ def validate_campaign(data, current):
             if data[k] not in APPROVAL_STATES:
                 raise ValueError(f'{k} must be one of {", ".join(APPROVAL_STATES)}.')
             out[k] = data[k]
-    for k, lo, hi in (('min_age', 13, 99), ('entries_per_person', 0, 1000), ('claim_days', 1, 365)):
+    for k in ('referral_reward', 'referral_terms'):
+        if k in data:
+            out[k] = str(data[k] or '').strip()[:600]
+    for k, lo, hi in (('min_age', 13, 99), ('entries_per_person', 0, 1000), ('claim_days', 1, 365), ('referral_threshold', 1, 360)):
         if k in data:
             try:
                 v = int(data[k])
@@ -592,7 +642,7 @@ def validate_campaign(data, current):
                 raise ValueError(f'{k} must be a date/time like 2026-12-14T20:00.')
     if out.get('start_at') and out.get('end_at') and out['end_at'] <= out['start_at']:
         raise ValueError('The end date must be after the start date.')
-    for k in ('sales_paused', 'prizes_confirmed', 'free_entry_enabled', 'winner_anonymous_allowed', 'music_autostart'):
+    for k in ('sales_paused', 'prizes_confirmed', 'free_entry_enabled', 'winner_anonymous_allowed', 'music_autostart', 'referral_enabled'):
         if k in data:
             out[k] = bool(data[k])
     if 'winners' in data:
@@ -623,7 +673,7 @@ def validate_campaign(data, current):
         if 'enabled' in data['transport']:
             t['enabled'] = bool(data['transport']['enabled'])
         out['transport'] = t
-    for k in ('prize_image',):
+    for k in ('prize_image', 'reveal_image'):
         if out.get(k) and not re.fullmatch(r'/(assets|uploads)/[A-Za-z0-9._/-]+', out[k]):
             raise ValueError('Images must be uploaded files.')
     if 'music_source' in data:

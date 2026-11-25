@@ -553,3 +553,30 @@ def test_music_settings_and_audio_upload(admin, client):
     r = admin.put('/api/admin/campaign', json={'music_source': 'upload', 'music_url': up.json['url']}, headers=ADMIN)
     assert r.status_code == 200 and r.json['campaign']['music_url'] == up.json['url']
     assert admin.put('/api/admin/campaign', json={'music_url': '/uploads/abc.exe'}, headers=ADMIN).status_code == 400
+
+
+def test_share_links_count_other_peoples_paid_entries(client, admin):
+    r = client.post('/api/ambassadors', json={'name': 'Sarah Cohen', 'email': 'sarah@example.com'})
+    assert r.status_code == 200, r.json
+    code = r.json['code']
+    assert r.json['first_name'] == 'Sarah' and r.json['threshold'] == 10 and 'Tomahawk' in r.json['reward']
+    assert r.json['link'].endswith('/?ref=' + code)
+    # same email returns the same link
+    assert client.post('/api/ambassadors', json={'name': 'Sarah', 'email': 'SARAH@example.com'}).json['code'] == code
+    admin.put('/api/admin/campaign', json={'referral_threshold': 2}, headers=ADMIN)
+    s1 = spin(client, email='a@example.com', ref=code).json
+    assert s1['my_link']['code'] != code and s1['my_link']['sold'] == 0  # every entrant gets their own link
+    spin(client, email='sarah@example.com', ref=code)           # own link: doesn't count
+    spin(client, email='b+decline@example.com', ref=code)       # declined: doesn't count
+    assert client.get(f'/api/ambassadors/{code}').json['sold'] == 1
+    spin(client, email='c@example.com', ref=code.upper())
+    g = client.get(f'/api/ambassadors/{code}').json
+    assert g['sold'] == 2 and g['earned'] is True
+    rows = admin.get('/api/admin/ambassadors').json['ambassadors']
+    top = rows[0]
+    assert top['code'] == code and top['sold'] == 2 and top['reward_status'] == 'earned'
+    assert admin.post(f"/api/admin/ambassadors/{top['id']}/reward", json={'status': 'fulfilled'}, headers=ADMIN).status_code == 200
+    assert client.get('/api/ambassadors/nope-0000').status_code == 404
+    assert client.post('/api/ambassadors', json={'name': '', 'email': 'x'}).status_code == 400
+    # unknown ref is ignored, entry still works
+    assert spin(client, email='d@example.com', ref='does-not-exist').status_code == 200
