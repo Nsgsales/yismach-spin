@@ -42,10 +42,10 @@ RESTAURANT_SLUGS = ["reserve-cut", "barnea-bistro", "ren", "mikes-bistro", "doma
 DEFAULT_CAMPAIGN = {
     "org_name": "K'hal Yismach Moshe",
     "presents": "K'hal Yismach Moshe presents",
-    "title": "Spin to Win",
+    "title": "The Golden Spin",
     "subtitle": "The Ultimate Kosher Foodie Experience",
-    "headline": "10 Restaurants. 10 Date Nights. One Unforgettable Year.",
-    "intro": "Imagine spending the next year dining for two at 10 of New York's most celebrated kosher restaurants, without worrying about the bill or the ride home.",
+    "headline": "A Year of Fine Dining. On Us.",
+    "intro": "One winner spends the next year dining for two at 10 of New York's most celebrated kosher restaurants, with dinner and the ride home taken care of.",
     "tagline": "Dinner is on us. Your ride is on us. Just bring your appetite.",
     "prize_title": "The Grand Prize",
     "prize_description": "One lucky winner receives dinner for two at each of these 10 restaurants.",
@@ -69,7 +69,7 @@ DEFAULT_CAMPAIGN = {
                     for i, r in enumerate(RESTAURANTS)],
     "transport": {
         "enabled": True,
-        "title": "Your ride is on us!",
+        "title": "Your ride is on us.",
         "amount": "$1,500",
         "amount_label": "in Uber gift cards",
         "detail": "The winner receives a $150 Uber gift card for each of the 10 date nights.",
@@ -84,7 +84,7 @@ DEFAULT_CAMPAIGN = {
     "end_at": "",
     "sales_paused": False,
     "prizes_confirmed": True,
-    "share_text": "A year of date nights at NYC's finest kosher restaurants, with dinner and Uber rides covered. Spin the dreidel from $1:",
+    "share_text": "The Golden Spin: win a year of fine dining for two at 10 of New York's best kosher restaurants, rides included. Enter from $1:",
     # ── legal & compliance (placeholders until verified; see legal.py) ──
     "org_legal_name": "Yismach Moshe of North Woodmere", "org_nonprofit_status": "a not-for-profit organization",
     "org_ein": "82-3156516", "org_address": "45 Centre St, Woodmere, NY 11598", "org_email": "yismachmosheow@gmail.com",
@@ -110,6 +110,7 @@ DEFAULT_CAMPAIGN = {
     "marketing_consent_text": "Keep me informed about future {org} events and fundraisers (optional).",
     "official_rules": "", "free_entry_instructions": "", "privacy_policy": "", "terms_text": "", "winner_info": "",
     "legal_approval_status": "not_started", "processor_approval_status": "not_started",
+    "progress_min": 50,  # show the "entries claimed" bar once this many are claimed
     "notify_emails": "",  # staff who get an email for every new entry (comma-separated), set in the admin
     "email_subject": "Your {campaign} entry: #{number}",
     "email_body": ("Dear {name},\n\nThank you for supporting {org}. Your dreidel landed on number {number}.\n\n"
@@ -118,7 +119,7 @@ DEFAULT_CAMPAIGN = {
 }
 
 PUBLIC_CAMPAIGN_KEYS = ["org_name", "presents", "title", "subtitle", "headline", "intro", "tagline", "prize_title",
-                        "prize_description", "prize_items", "prize_image", "reveal_image", "reveal_caption", "hero_images", "hero_source", "referral_enabled", "referral_threshold", "referral_reward", "referral_terms", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
+                        "prize_description", "prize_items", "progress_min", "prize_image", "reveal_image", "reveal_caption", "hero_images", "hero_source", "referral_enabled", "referral_threshold", "referral_reward", "referral_terms", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
                         "start_at", "end_at", "prizes_confirmed", "share_text",
                         "org_legal_name", "org_nonprofit_status", "org_ein", "org_address", "org_email", "org_phone",
                         "campaign_purpose", "campaign_number", "rules_version", "free_entry_enabled", "min_age",
@@ -236,6 +237,30 @@ def init_db(path):
         if 'ref_code' not in {r[1] for r in c.execute('PRAGMA table_info(entries)')}:
             c.execute('ALTER TABLE entries ADD COLUMN ref_code TEXT')
         c.execute('CREATE INDEX IF NOT EXISTS entries_ref ON entries(ref_code)')
+        apply_design_v2(c)
+
+
+DESIGN_V2_OLD = {'title': 'Spin to Win', 'headline': '10 Restaurants. 10 Date Nights. One Unforgettable Year.', 'intro': "Imagine spending the next year dining for two at 10 of New York's most celebrated kosher restaurants, without worrying about the bill or the ride home.", 'share_text': "A year of date nights at NYC's finest kosher restaurants, with dinner and Uber rides covered. Spin the dreidel from $1:"}
+DESIGN_V2_NEW = {'title': 'The Golden Spin', 'headline': 'A Year of Fine Dining. On Us.', 'intro': "One winner spends the next year dining for two at 10 of New York's most celebrated kosher restaurants, with dinner and the ride home taken care of.", 'share_text': "The Golden Spin: win a year of fine dining for two at 10 of New York's best kosher restaurants, rides included. Enter from $1:"}
+
+
+def apply_design_v2(c):
+    """The Golden Spin redesign: update stored default wording once; anything edited by hand stays as it is."""
+    if c.execute("SELECT 1 FROM settings WHERE key='migration_design_v2'").fetchone():
+        return
+    row = c.execute("SELECT value FROM settings WHERE key='campaign'").fetchone()
+    if row:
+        data = json.loads(row[0]); changed = []
+        for k, old in DESIGN_V2_OLD.items():
+            if data.get(k, '').replace('\u2019', "'") == old:
+                data[k] = DESIGN_V2_NEW[k]; changed.append(k)
+        t = data.get('transport') or {}
+        if t.get('title') == 'Your ride is on us!':
+            t['title'] = 'Your ride is on us.'; changed.append('transport.title')
+        c.execute("UPDATE settings SET value=? WHERE key='campaign'", (json.dumps(data),))
+        if changed:
+            log(c, 'system', 'design_v2_applied', fields=changed)
+    c.execute("INSERT INTO settings(key,value) VALUES('migration_design_v2','1')")
 
 
 def log(c, actor, action, **detail):
@@ -668,7 +693,7 @@ def validate_campaign(data, current):
     for k in ('referral_reward', 'referral_terms'):
         if k in data:
             out[k] = str(data[k] or '').strip()[:600]
-    for k, lo, hi in (('min_age', 13, 99), ('entries_per_person', 0, 1000), ('claim_days', 1, 365), ('referral_threshold', 1, 360)):
+    for k, lo, hi in (('min_age', 13, 99), ('entries_per_person', 0, 1000), ('claim_days', 1, 365), ('referral_threshold', 1, 360), ('progress_min', 0, 5000)):
         if k in data:
             try:
                 v = int(data[k])

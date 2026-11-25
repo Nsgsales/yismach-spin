@@ -45,10 +45,10 @@
     <div class="hero-copy">
       <img class="crest" src="/assets/logo.png" alt="K’hal Yismach Moshe" width="96" height="96">
       <p class="kicker"><span data-c="presents">K’hal Yismach Moshe presents</span></p>
-      <p class="wordmark"><span data-c="title">Spin to Win</span><span class="dash"></span><span class="sub" data-c="subtitle">The Ultimate Kosher Foodie Experience</span></p>
-      <h1 class="headline" id="headline">10 Restaurants. 10 Date Nights. One Unforgettable Year.</h1>
+      <p class="wordmark"><span data-c="title">The Golden Spin</span><span class="dash"></span><span class="sub" data-c="subtitle">The Ultimate Kosher Foodie Experience</span></p>
+      <h1 class="headline" id="headline">A Year of Fine Dining. On Us.</h1>
       <a class="ride-badge" id="rideBadge" href="#ride"><span class="rb-car" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11m-14 0h14m-14 0a2 2 0 0 0-2 2v3h2m14-5a2 2 0 0 1 2 2v3h-2M5 16v2m14-2v2M5 16h14M7.5 13.5h.01M16.5 13.5h.01"/></svg></span><span class="rb-text"><b>Transportation included</b><span>Every date night comes with a <em id="rbPer">$150</em> Uber ride · <em id="rbTotal">$1,500</em> total</span></span></a>
-      <p class="intro" data-c="intro">Imagine spending the next year dining for two at 10 of New York’s most celebrated kosher restaurants, without worrying about the bill or the ride home.</p>
+      <p class="intro" data-c="intro">One winner spends the next year dining for two at 10 of New York’s most celebrated kosher restaurants, with dinner and the ride home taken care of.</p>
       <ul class="pillars tickets">
         <li><span class="p-num"><span class="maxT">360</span></span><span class="p-lbl">entries only</span></li>
         <li><span class="p-num"><span data-unit>$1</span>–<span class="maxPriceT">$360</span></span><span class="p-lbl">donation per entry</span></li>
@@ -57,6 +57,7 @@
       <div class="hero-actions">
         <button class="cta" id="cta" type="button" data-open-checkout><span>Spin the Dreidel</span></button>
         <p class="avail"><strong id="remaining">—</strong> of <span class="maxT">360</span> entries left<br><span>Enter for as little as <b data-unit>$1</b></span></p>
+        <div class="claimed" id="claimed" hidden><div class="cl-bar"><i id="clBar"></i></div><p><b id="clN">0</b> of <span class="maxT">360</span> entries claimed</p></div>
       </div>
     </div>
 
@@ -71,6 +72,34 @@
 </header>
 
 <main>
+  <section class="guide" id="guide" aria-labelledby="guide-h">
+    <div class="section-head">
+      <p class="kicker">The Collection</p>
+      <h2 id="guide-h" class="section-title">Ten tables.<br><em>Ten evenings for two.</em></h2>
+      <p class="section-lede" data-c="prize_description">One lucky winner receives dinner for two at each of these 10 restaurants.</p>
+    </div>
+    <ol class="guide-list" id="guideList"></ol>
+  </section>
+
+  <section class="ride" id="ride" aria-labelledby="ride-h">
+    <div class="ride-bg" aria-hidden="true"><div class="ride-photo" id="ridePhoto"></div><div class="ride-grade"></div></div>
+    <div class="ride-inner">
+      <div class="ride-copy">
+      <div class="ride-brand" id="rideBrand"><span class="uber-word">Uber</span></div>
+      <h2 id="ride-h" class="ride-title" data-c-t="title">Your ride is on us.</h2>
+      <p class="ride-amount"><span id="rideAmount">$1,500</span></p>
+      <p class="ride-label" id="rideLabel">in Uber gift cards</p>
+      <p class="ride-detail" id="rideDetail">The winner receives a $150 Uber gift card for each of the 10 date nights.</p>
+      <ul class="ride-points">
+        <li><strong id="ridePer">$150</strong><span>every date night</span></li>
+        <li><strong>Door</strong><span>to door, both ways</span></li>
+        <li><strong>Zero</strong><span>parking, zero hassle</span></li>
+      </ul>
+      </div>
+      <div class="cards-stack" aria-hidden="true" id="cardStack"></div>
+    </div>
+  </section>
+
   <section class="overview" id="prize" aria-labelledby="prize-h">
     <div class="ov-card ov-prize">
       <p class="kicker" id="prizeKicker">Proposed prize package</p>
@@ -95,34 +124,6 @@
       <div class="ov-cta"><button class="cta" type="button" data-open-checkout><span>Spin the Dreidel</span></button><p>Donate as little as <b data-unit>$1</b> · As a thank-you, you are entered into the drawing</p></div>
       <p class="npn" data-npn><strong>No purchase or donation necessary to enter or win.</strong> Making a contribution will not improve your odds of winning. Eligible free entries and donation-based entries receive equal treatment. Void where prohibited. See <a href="/rules">Official Rules</a> and <a href="/free-entry">Free Entry Instructions</a> for complete details.</p>
     </div>
-  </section>
-
-  <section class="ride" id="ride" aria-labelledby="ride-h">
-    <div class="ride-bg" aria-hidden="true"><div class="ride-photo" id="ridePhoto"></div><div class="ride-grade"></div></div>
-    <div class="ride-inner">
-      <div class="ride-copy">
-      <div class="ride-brand" id="rideBrand"><span class="uber-word">Uber</span></div>
-      <h2 id="ride-h" class="ride-title" data-c-t="title">Your ride is on us!</h2>
-      <p class="ride-amount"><span id="rideAmount">$1,500</span></p>
-      <p class="ride-label" id="rideLabel">in Uber gift cards</p>
-      <p class="ride-detail" id="rideDetail">The winner receives a $150 Uber gift card for each of the 10 date nights.</p>
-      <ul class="ride-points">
-        <li><strong id="ridePer">$150</strong><span>every date night</span></li>
-        <li><strong>Door</strong><span>to door, both ways</span></li>
-        <li><strong>Zero</strong><span>parking, zero hassle</span></li>
-      </ul>
-      </div>
-      <div class="cards-stack" aria-hidden="true" id="cardStack"></div>
-    </div>
-  </section>
-
-  <section class="guide" id="guide" aria-labelledby="guide-h">
-    <div class="section-head">
-      <p class="kicker">The Dining Guide</p>
-      <h2 id="guide-h" class="section-title">Ten tables.<br><em>Ten evenings for two.</em></h2>
-      <p class="section-lede" data-c="prize_description">One lucky winner receives dinner for two at each of these 10 restaurants.</p>
-    </div>
-    <ol class="guide-list" id="guideList"></ol>
   </section>
 
   <section class="play" id="play" aria-labelledby="play-h">

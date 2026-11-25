@@ -134,11 +134,11 @@ const sound = (() => {
 $('musicClose').addEventListener('click', () => sound.off());
 
 function celebrate() {
+  // fine gold dust drifting down: celebratory without being festive
   const fire = window.confetti; if (!fire || reduced) return;
-  const base = { colors: ['#fff6dd', '#ecd29a', '#cfa95f', '#b38a3f', '#fffaf0'], ticks: 280, gravity: 0.85, scalar: 1.05, shapes: ['square', 'circle'], disableForReducedMotion: true, zIndex: 80 };
-  fire({ ...base, particleCount: 130, spread: 80, startVelocity: 50, origin: { x: 0.5, y: 0.5 } });
-  setTimeout(() => { fire({ ...base, particleCount: 70, angle: 60, spread: 60, origin: { x: 0, y: 0.75 } }); fire({ ...base, particleCount: 70, angle: 120, spread: 60, origin: { x: 1, y: 0.75 } }); }, 220);
-  setTimeout(() => fire({ ...base, particleCount: 90, spread: 150, startVelocity: 28, scalar: 0.8, origin: { x: 0.5, y: 0.25 } }), 540);
+  const dust = { colors: ['#fff3d6', '#f3dca6', '#ecd29a', '#cfa95f', '#b38a3f'], shapes: ['circle'], scalar: 0.45, gravity: 0.22, decay: 0.955, drift: 0, ticks: 520, disableForReducedMotion: true, zIndex: 80 };
+  fire({ ...dust, particleCount: 90, spread: 160, startVelocity: 16, origin: { x: 0.5, y: 0.18 } });
+  setTimeout(() => { fire({ ...dust, particleCount: 40, angle: 70, spread: 50, startVelocity: 22, origin: { x: 0.1, y: 0.35 } }); fire({ ...dust, particleCount: 40, angle: 110, spread: 50, startVelocity: 22, origin: { x: 0.9, y: 0.35 } }); }, 260);
 }
 
 /* ───────────── 3D dreidel ───────────── */
@@ -180,7 +180,8 @@ async function createDreidel(el) {
   const rim = new THREE.DirectionalLight(0xffc878, 2.2); rim.position.set(-4, 5, -6); scene.add(rim);
   const under = new THREE.PointLight(0xffb44d, 6, 7, 1.6); under.position.set(0, 0.35, 1.4); scene.add(under);
 
-  const gold = new THREE.MeshPhysicalMaterial({ color: 0xe9b95c, metalness: 1, roughness: 0.26, clearcoat: 0.6, clearcoatRoughness: 0.12, envMapIntensity: 1.35 });
+  // brushed gold: anisotropic highlights stretched across the faces, like satin-finished jewelry
+  const gold = new THREE.MeshPhysicalMaterial({ color: 0xe4b55a, metalness: 1, roughness: 0.3, anisotropy: 0.7, anisotropyRotation: Math.PI / 2, clearcoat: 0.35, clearcoatRoughness: 0.22, envMapIntensity: 1.4 });
   const goldFlat = gold.clone(); goldFlat.flatShading = true;
 
   function faceMaterial(letter) {
@@ -256,7 +257,7 @@ async function createDreidel(el) {
     if (!n || n === dialCount) return; dialCount = n;
     const g = dialCanvas.getContext('2d'), W = 4096, H = 256;
     const bg = g.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#2a2114'); bg.addColorStop(0.12, '#0f0c08'); bg.addColorStop(0.88, '#0b0906'); bg.addColorStop(1, '#2a2114');
+    bg.addColorStop(0, '#1c3a2c'); bg.addColorStop(0.14, '#0b241a'); bg.addColorStop(0.86, '#071a12'); bg.addColorStop(1, '#1c3a2c');  // deep emerald bezel
     g.fillStyle = bg; g.fillRect(0, 0, W, H);
     g.fillStyle = 'rgba(255,214,140,.85)'; g.fillRect(0, 6, W, 3); g.fillRect(0, H - 9, W, 3);
     const labelEvery = n <= 400 ? 10 : Math.ceil(n / 360) * 10;
@@ -457,7 +458,8 @@ function renderCampaign(c) {
   document.title = `${c.title} · ${c.org_name}`;
   // headline: one line per sentence, last line in gold italic
   const lines = (c.headline || '').split(/(?<=\.)\s+/).filter(Boolean);
-  $('headline').innerHTML = lines.map(l => `<span class="l"><span>${esc(l)}</span></span>`).join('');
+  // keep each line's last two words together ("Fine Dining.") so lines break gracefully
+  $('headline').innerHTML = lines.map(l => `<span class="l"><span>${esc(l).replace(/ (\S+)$/, '\u00a0$1')}</span></span>`).join('');
   const fromRestaurants = (c.restaurants || []).filter(r => r.photo).map(r => ({ img: r.photo, logo: r.logo, name: r.name }));
   const custom = (c.hero_images || []).map(u => ({ img: u }));
   setSlides(c.hero_source === 'custom' || !fromRestaurants.length ? custom : fromRestaurants);
@@ -526,6 +528,9 @@ function renderStatus(s) {
   $$('[data-ex]').forEach(e => { e.textContent = money(18 * s.unit_price_cents); });
   for (const id of ['remaining', 'remaining2']) tweenNumber($(id), s.remaining);
   $('mbRemaining').textContent = s.remaining;
+  const claimed = s.max_tickets - s.remaining, min = (state.campaign && state.campaign.progress_min) ?? 50;
+  $('claimed').hidden = claimed < Math.max(1, min);
+  $('clN').textContent = claimed; $('clBar').style.width = (claimed / s.max_tickets * 100).toFixed(1) + '%';
   $$('[data-open-checkout]').forEach(b => { b.disabled = !s.sales_open || state.busy; });
   $$('.cta[data-open-checkout] > span').forEach(sp => { sp.textContent = s.sales_open ? (sp.closest('.mobile-bar') ? 'Spin' : 'Spin the Dreidel') : (s.remaining ? 'Entries closed' : 'All entries claimed'); });
   if (!s.sales_open && !state.busy) setHint(s.sales_message);

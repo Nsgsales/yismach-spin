@@ -209,6 +209,7 @@
         <label>Donation per number ($)<input type="number" min="0.01" step="0.01" id="unitPrice" value="${(c.unit_price_cents / 100).toFixed(2)}"><p class="help">Donation = number × this. Locked once entries are issued.</p></label>
         <label>Number of winners<input type="number" min="1" max="100" data-k="winners"></label>
         <label>Drawing date (shown publicly)<input data-k="drawing_date" placeholder="e.g. Sunday, December 21, 2026"></label>
+        <label>Show the “entries claimed” bar from<input type="number" min="0" data-k="progress_min"><p class="help">Hidden until this many entries are claimed, so early numbers don’t look small.</p></label>
         <label>Entries open<input type="datetime-local" data-k="start_at"></label>
         <label>Entries close<input type="datetime-local" data-k="end_at"></label></div>
         <p class="help" id="grossHelp"></p>
@@ -302,7 +303,7 @@
     body.prize_image = imgVal('prize_image'); body.reveal_image = imgVal('reveal_image'); body.hero_images = [0,1,2,3,4,5,6,7].map(i => imgVal(`hs:${i}`)).filter(Boolean); body.prize_items = $('prizeItemsF').value.split('\n'); transport.logo = imgVal('t:logo'); transport.image = imgVal('t:image');
     body.transport = transport; body.restaurants = S.rest; body.music_url = S.musicUrl || ''; body.winners = parseInt(body.winners, 10) || 1;
     body.unit_price_cents = Math.round(parseFloat($('unitPrice').value) * 100);
-    for (const k of ['min_age', 'entries_per_person', 'claim_days', 'referral_threshold']) { body[k] = parseInt(body[k], 10); if (Number.isNaN(body[k])) delete body[k]; }
+    for (const k of ['min_age', 'entries_per_person', 'claim_days', 'referral_threshold', 'progress_min']) { body[k] = parseInt(body[k], 10); if (Number.isNaN(body[k])) delete body[k]; }
     try {
       const newMax = parseInt($('maxTickets').value, 10);
       if (newMax !== S.maxLoaded) await api('/api/admin/settings', { method: 'POST', body: { max_tickets: newMax } });
