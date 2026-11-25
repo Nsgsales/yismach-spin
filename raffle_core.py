@@ -2,11 +2,12 @@
 
 Payments: simulated, Stripe TEST mode, or Stripe LIVE mode. Live needs live keys AND RAFFLE_LIVE_PAYMENTS=1.
 """
-import copy, hashlib, hmac, html, json, os, re, secrets, smtplib, sqlite3
+import copy, hashlib, hmac, html, json, os, re, secrets, smtplib, sqlite3, urllib.parse
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
+SITE_URL = os.environ.get('RAFFLE_SITE_URL', '').strip().rstrip('/')  # public address for links in emails; app fills it from the first request if unset
 PAYMENT_MODE = 'sandbox'  # set to 'live' by create_app when live Stripe payments are switched on
 DEFAULT_MAX_TICKETS = 360
 MAX_TICKETS_CEILING = 5000
@@ -577,7 +578,33 @@ def confirmation_code(number):
     return f'YM-{number:03d}'
 
 
-def render_email(campaign, entry):
+def share_link(c, campaign, name, email, phone=''):
+    """The person's personal share link (created on first use), or None when sharing is off."""
+    if not campaign.get('referral_enabled') or not SITE_URL or not email:
+        return None
+    amb, created = get_or_create_ambassador(c, name, email, phone or '', 'entry')
+    if created:
+        log(c, 'system', 'ambassador_created', code=amb['code'], email=email)
+    return f"{SITE_URL}/?ref={amb['code']}"
+
+
+def share_block(campaign, link):
+    """Share section for emails: (text, html)."""
+    reward = (campaign.get('referral_reward') or '').strip()
+    contest = (f" Reach {int(campaign.get('referral_threshold') or 10)} entries through your link and you earn {reward}." if reward else '')
+    wa = 'https://wa.me/?text=' + urllib.parse.quote(f"{campaign.get('share_text') or 'Spin the dreidel and win:'} {link}")
+    lead = ('Share it with friends and family on WhatsApp or social media. Every entry made through your link is credited to you '
+            'in our sharing contest.' + contest)
+    text = f"Share your personal link\n{lead}\n{link}\nShare on WhatsApp: {wa}"
+    h = f'''<div style="border-top:1px solid #6b5426;margin-top:24px;padding-top:20px">
+<p style="margin:0 0 6px;font-size:11px;letter-spacing:3px;color:#d4a64a;text-transform:uppercase">Share your personal link</p>
+<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#e6dccb;margin:0 0 12px">{html.escape(lead)}</p>
+<p style="font-family:Arial,sans-serif;font-size:14px;margin:0 0 14px;word-break:break-all"><a href="{html.escape(link)}" style="color:#f2d084">{html.escape(link)}</a></p>
+<a href="{html.escape(wa)}" style="display:inline-block;background:#25d366;color:#06140b;font-family:Arial,sans-serif;font-weight:bold;font-size:14px;text-decoration:none;padding:11px 20px;border-radius:999px">Share on WhatsApp</a></div>'''
+    return text, h
+
+
+def render_email(campaign, entry, link=None):
     amount = 'Free entry (no donation)' if entry['status'] == 'free' else money(entry['amount_cents'])
     vals = _Safe(name=entry['name'], number=entry['number'], amount=amount,
                  confirmation=confirmation_code(entry['number']), campaign=campaign['title'],
@@ -586,6 +613,9 @@ def render_email(campaign, entry):
     text = campaign['email_body'].format_map(vals)
     esc = {k: html.escape(str(v)) for k, v in vals.items()}
     body = '<br>'.join(html.escape(line) for line in text.split('\n'))
+    share_t, share_h = share_block(campaign, link) if link else ('', '')
+    if share_t:
+        text += '\n\n' + share_t
     html_body = f'''<div style="background:#07080c;padding:32px 12px;font-family:Georgia,serif;color:#f4ecdc">
 <div style="max-width:520px;margin:auto;border:1px solid #6b5426;border-radius:18px;padding:32px;background:#0f1118">
 <p style="letter-spacing:4px;text-transform:uppercase;font-size:11px;color:#d4a64a;margin:0">{html.escape(campaign['presents'])}</p>
@@ -595,6 +625,7 @@ def render_email(campaign, entry):
 <p style="margin:6px 0;font-size:56px;color:#f2d084;font-weight:bold">#{esc['number']}</p>
 <p style="margin:0;color:#f4ecdc">{esc['amount']} · Confirmation {esc['confirmation']}</p></div>
 <p style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#e6dccb">{body}</p>
+{share_h}
 {'' if PAYMENT_MODE == 'live' else '<p style="font-family:Arial,sans-serif;font-size:11px;color:#8a8273;margin-top:24px">Test mode: no real charge was made.</p>'}
 </div></div>'''
     return subject, text, html_body
@@ -630,12 +661,68 @@ def smtp_send(to, subject, text, html_body=None):
 
 
 def deliver_email(c, entry, campaign, actor='system'):
-    subject, text, html_body = render_email(campaign, entry)
+    link = share_link(c, campaign, entry['name'], entry['email'], entry['phone'] if 'phone' in entry.keys() else '')
+    subject, text, html_body = render_email(campaign, entry, link)
     status, err, sent_at = smtp_send(entry['email'], subject, text, html_body)
     c.execute('INSERT INTO emails(entry_id,to_addr,subject,body_text,body_html,status,error,sent_at) VALUES(?,?,?,?,?,?,?,?)',
               (entry['id'], entry['email'], subject, text, html_body, status, err, sent_at))
     log(c, actor, 'email_' + status, entry_id=entry['id'], to=entry['email'], error=err)
+    if link and status == 'sent':  # already has their link, so the one-off share email skips them
+        mark_share_sent(c, entry['email'])
     return status
+
+
+SHARE_SENT_KEY = 'share_links_sent'
+
+
+def share_recipients(c):
+    """Everyone with an active entry who hasn't been sent the share-link email yet: [(email, name, phone, [numbers])]."""
+    sent = set(json.loads((c.execute('SELECT value FROM settings WHERE key=?', (SHARE_SENT_KEY,)).fetchone() or ['[]'])[0]))
+    people = {}
+    for r in c.execute("SELECT email, name, phone, number FROM entries WHERE status IN ('paid','free') ORDER BY id"):
+        k = r['email'].strip().lower()
+        if k in sent:
+            continue
+        p = people.setdefault(k, [r['email'], r['name'], r['phone'] or '', []])
+        p[3].append(r['number'])
+    return [tuple(v) for v in people.values()]
+
+
+def send_share_email(c, campaign, email, name, phone, numbers):
+    """One-off email with the person's share link. Returns the smtp status; records it in the outbox."""
+    link = share_link(c, campaign, name, email, phone)
+    if not link:
+        return 'skipped'
+    share_t, share_h = share_block(campaign, link)
+    nums = ', '.join(f'#{n}' for n in sorted(numbers))
+    first = (name or '').split()[0] if name else 'there'
+    subject = f"Your personal share link for {campaign['title']}"
+    intro = (f"Hi {first},\n\nThank you again for entering {campaign['title']} (your entry: {nums}). Many of you asked for a link "
+             f"to share, so here is your own personal one.")
+    text = intro + '\n\n' + share_t + f"\n\n{campaign['org_name']}"
+    body = '<br>'.join(html.escape(line) for line in intro.split('\n'))
+    html_body = f'''<div style="background:#07080c;padding:32px 12px;font-family:Georgia,serif;color:#f4ecdc">
+<div style="max-width:520px;margin:auto;border:1px solid #6b5426;border-radius:18px;padding:32px;background:#0f1118">
+<p style="letter-spacing:4px;text-transform:uppercase;font-size:11px;color:#d4a64a;margin:0">{html.escape(campaign['presents'])}</p>
+<h1 style="font-size:30px;color:#f2d084;margin:8px 0 18px">{html.escape(campaign['title'])}</h1>
+<p style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#e6dccb">{body}</p>
+{share_h}
+<p style="font-family:Arial,sans-serif;font-size:13px;color:#a79f8f;margin-top:22px">{html.escape(campaign['org_name'])}</p>
+</div></div>'''
+    status, err, sent_at = smtp_send(email, subject, text, html_body)
+    c.execute('INSERT INTO emails(entry_id,to_addr,subject,body_text,body_html,status,error,sent_at) VALUES(?,?,?,?,?,?,?,?)',
+              (None, email, subject, text, html_body, status, err, sent_at))
+    log(c, 'system', 'share_email_' + status, to=email, error=err)
+    if status == 'sent':
+        mark_share_sent(c, email)
+    return status
+
+
+def mark_share_sent(c, email):
+    row = c.execute('SELECT value FROM settings WHERE key=?', (SHARE_SENT_KEY,)).fetchone()
+    sent = set(json.loads(row[0]) if row else [])
+    sent.add(email.strip().lower())
+    c.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', (SHARE_SENT_KEY, json.dumps(sorted(sent))))
 
 
 def staff_notice(c, entry, campaign):

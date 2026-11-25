@@ -654,3 +654,42 @@ def test_going_live_keeps_entries_closed_until_test_entries_cleared(make, tmp_pa
         assert raw.execute('SELECT payment_mode FROM entries').fetchall() == [('live',)]
     # real donations can never be wiped by this button
     assert adm.post('/api/admin/clear-test-entries', json={'confirm': 'CLEAR TEST ENTRIES'}, headers=ADMIN).status_code == 409
+
+
+def test_confirmation_email_has_share_link(client, admin, monkeypatch):
+    monkeypatch.setattr(core, 'SITE_URL', 'https://spin.example.org')
+    assert spin(client, email='sharer@example.com').status_code == 200
+    em = admin.get('/api/admin/emails').json
+    em = em.get('emails', em)
+    eid = [e for e in em if e['to_addr'] == 'sharer@example.com'][0]['id']
+    body = admin.get(f'/api/admin/emails/{eid}').json
+    body = body.get('email', body)
+    assert 'https://spin.example.org/?ref=test-person-' in body['body_text']
+    assert 'wa.me/?text=' in body['body_html'] and 'Share on WhatsApp' in body['body_html']
+    amb = admin.get('/api/admin/ambassadors').json['ambassadors']
+    assert any(a['email'] == 'sharer@example.com' for a in amb)
+
+
+def test_share_emails_sent_once_to_earlier_entrants(client, admin, monkeypatch):
+    monkeypatch.setattr(core, 'SITE_URL', '')  # entries made before the feature: confirmation had no link
+    for e in ('a@example.com', 'b@example.com', 'a@example.com'):
+        assert spin(client, email=e).status_code == 200
+    monkeypatch.setattr(core, 'SITE_URL', 'https://spin.example.org')
+    sent = []
+    monkeypatch.setattr(core, 'smtp_configured', lambda: True)
+    monkeypatch.setattr(core, 'smtp_send', lambda to, s, t, h=None: (sent.append((to, s, t)), ('sent', None, core.now_iso()))[1])
+    monkeypatch.setattr(appmod.time, 'sleep', lambda s: None)
+    assert admin.get('/api/admin/share-emails').json['pending'] == 2
+    assert admin.post('/api/admin/share-emails', json={}, headers=ADMIN).status_code == 400
+    assert admin.post('/api/admin/share-emails', json={'confirm': 'SEND'}, headers=ADMIN).json['total'] == 2
+    for _ in range(200):
+        if not admin.get('/api/admin/share-emails').json['running']:
+            break
+        threading.Event().wait(0.02)
+    assert sorted(t for t, _, _ in sent) == ['a@example.com', 'b@example.com']
+    a_text = [t for to, _, t in sent if to == 'a@example.com'][0]
+    assert '?ref=' in a_text and 'your entry: #' in a_text and a_text.count('#') == 2  # both of a@'s numbers
+    assert admin.get('/api/admin/share-emails').json['pending'] == 0
+    # a new entry after the blast gets the link in its confirmation and is not queued again
+    assert spin(client, email='c@example.com').status_code == 200
+    assert admin.get('/api/admin/share-emails').json['pending'] == 0

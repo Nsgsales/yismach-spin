@@ -116,6 +116,9 @@
       <header class="ph"><h2>Ambassadors</h2><div class="ph-actions"><button class="btn" id="ambRefresh">Refresh</button></div></header>
       <div class="card"><p class="muted small" style="margin-top:0" id="ambIntro"></p>
         <div class="row"><label>Name<input id="ambName"></label><label>Email<input id="ambEmail" type="email"></label><label>Phone (optional)<input id="ambPhone" type="tel"></label><button class="btn primary" id="ambAdd">Create link</button></div></div>
+      <div class="card" id="shareCard"><h3>Email everyone their share link</h3>
+        <p class="muted small" style="margin-top:0">New entries now get their personal link and a WhatsApp button in the confirmation email. This sends a short email with their link to everyone who entered before that. Each person gets it only once, so it’s safe to press again later.</p>
+        <div class="row"><span class="muted small" id="shareCount"></span><button class="btn primary" id="shareGo">Send share links</button></div></div>
       <div class="filters"><input type="search" id="ambQ" placeholder="Search name, email or link"></div>
       <div class="table-wrap"><table><thead><tr><th>Ambassador</th><th>Personal link</th><th>Entries sold</th><th>Raised</th><th>Reward</th><th>Since</th></tr></thead><tbody id="ambRows"></tbody></table></div>
     </section>

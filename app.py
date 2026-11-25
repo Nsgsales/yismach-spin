@@ -1,4 +1,4 @@
-import csv, hmac, io, json, os, re, secrets, time
+import csv, hmac, io, json, os, re, secrets, threading, time
 from collections import defaultdict, deque
 from datetime import timedelta
 from pathlib import Path
@@ -359,6 +359,14 @@ def create_app(db_path=None):
 
     def actor():
         return 'admin:' + (session.get('admin') or 'api-token')
+
+    @app.before_request
+    def remember_site_url():
+        # Links in emails use the address people actually visit (custom domain), never an internal health-check host.
+        host = request.host.split(':')[0]
+        if not os.environ.get('RAFFLE_SITE_URL') and '.' in host and not host.replace('.', '').isdigit():
+            if not core.SITE_URL or not host.endswith('onrender.com'):
+                core.SITE_URL = request.host_url.rstrip('/')
 
     @app.before_request
     def admin_guard():
@@ -727,6 +735,44 @@ def create_app(db_path=None):
             amb, created = core.get_or_create_ambassador(c, name, email, phone, 'admin')
             core.log(c, actor(), 'ambassador_created' if created else 'ambassador_exists', code=amb['code'])
         return jsonify(ok=True, code=amb['code'], created=created)
+
+    share_job = {'running': False, 'sent': 0, 'failed': 0, 'total': 0}
+
+    @app.get('/api/admin/share-emails')
+    def share_emails_status():
+        with connect() as c:
+            pending = len(core.share_recipients(c))
+        return jsonify(pending=pending, smtp=core.smtp_configured(), **share_job)
+
+    @app.post('/api/admin/share-emails')
+    def share_emails_send():
+        """Email every entrant who doesn't have their share link yet. Runs in the background; each person gets it once."""
+        if (request.get_json(silent=True) or {}).get('confirm') != 'SEND':
+            return jsonify(error='Confirm to send.'), 400
+        if not core.smtp_configured():
+            return jsonify(error='Email sending is not set up (SMTP settings).'), 409
+        if share_job['running']:
+            return jsonify(error='Already sending.'), 409
+        with connect() as c:
+            people = core.share_recipients(c)
+            core.log(c, actor(), 'share_emails_started', count=len(people))
+        share_job.update(running=True, sent=0, failed=0, total=len(people))
+
+        def run():
+            try:
+                for email, name, phone, numbers in people:
+                    with connect() as c:
+                        camp = core.get_campaign(c)
+                        if email.strip().lower() not in {p[0].strip().lower() for p in core.share_recipients(c)}:
+                            continue  # got it meanwhile (e.g. a new entry's confirmation)
+                        st = core.send_share_email(c, camp, email, name, phone, numbers)
+                    share_job['sent' if st == 'sent' else 'failed'] += 1
+                    time.sleep(1)  # gentle on the Gmail sending limit
+            finally:
+                share_job['running'] = False
+
+        threading.Thread(target=run, daemon=True).start()
+        return jsonify(ok=True, total=len(people))
 
     @app.post('/api/admin/ambassadors/<int:aid>/reward')
     def admin_ambassador_reward(aid):

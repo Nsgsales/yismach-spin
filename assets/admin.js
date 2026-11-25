@@ -316,7 +316,7 @@
   /* ambassadors (share-and-earn links) */
   const REWARD = { none: '—', earned: 'Reward due', fulfilled: 'Reward given' };
   async function loadAmb() {
-    const d = await api('/api/admin/ambassadors'); S.amb = d;
+    const d = await api('/api/admin/ambassadors'); S.amb = d; loadShare();
     $('ambIntro').textContent = `${d.ambassadors.length} personal links. Counts are paid entries made by other people through each link (a person’s own entries don’t count). Donors get a link automatically after they spin; you can also create one here for a volunteer.${d.reward ? ` Public reward: ${d.reward} at ${d.threshold} entries.` : ' No reward is shown publicly.'}`;
     renderAmb();
   }
@@ -340,6 +340,21 @@
   $('ambRows').addEventListener('change', async (e) => {
     const sel = e.target.closest('[data-reward]'); if (!sel) return;
     try { await api(`/api/admin/ambassadors/${sel.dataset.reward}/reward`, { method: 'POST', body: { status: sel.value } }); toast('Reward status saved'); loadAmb(); } catch (err) { toast(err.message, true); }
+  });
+  async function loadShare() {
+    try { const d = await api('/api/admin/share-emails');
+      $('shareCount').textContent = d.running ? `Sending… ${d.sent + d.failed} of ${d.total} done${d.failed ? ` (${d.failed} failed, see Emails)` : ''}.`
+        : (d.total ? `Last run: ${d.sent} sent${d.failed ? `, ${d.failed} failed (see Emails)` : ''}. ` : '') + `${d.pending} ${d.pending === 1 ? 'person hasn’t' : 'people haven’t'} been sent their link yet.`;
+      $('shareGo').disabled = d.running || !d.pending || !d.smtp;
+      if (!d.smtp) $('shareCount').textContent += ' Email sending is not set up.';
+      if (d.running) setTimeout(loadShare, 3000); else if (S.shareWasRunning) loadAmb();
+      S.shareWasRunning = d.running;
+    } catch (err) { $('shareCount').textContent = err.message; }
+  }
+  $('shareGo').addEventListener('click', async () => {
+    if (!confirm('Email a personal share link to everyone who hasn’t received one yet?')) return;
+    try { const r = await api('/api/admin/share-emails', { method: 'POST', body: { confirm: 'SEND' } }); toast(`Sending to ${r.total}…`); loadShare(); }
+    catch (err) { toast(err.message, true); }
   });
   $('ambAdd').addEventListener('click', async () => {
     try { const r = await api('/api/admin/ambassadors', { method: 'POST', body: { name: $('ambName').value, email: $('ambEmail').value, phone: $('ambPhone').value } });
