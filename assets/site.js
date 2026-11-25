@@ -44,49 +44,65 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
    YouTube: YouTube's own embedded player, kept visible (as YouTube requires) in a small dock.
    Upload: an audio file the organization has the rights to, looped quietly. */
 const music = (() => {
-  let cfg = { source: 'off' }, audio = null;
+  // The YouTube player is created (paused) shortly after the page loads, so that a tap on the speaker button can start it
+  // with sound immediately: browsers only allow sound inside the tap itself, not seconds later after a player loads.
+  let cfg = { source: 'off' }, audio = null, player = null, ready = false, wanted = false, apiLoading = false, preloadTimer = null;
   const dock = () => $('musicDock');
-  const yt = (cmd, args = []) => { const f = $('musicPlayer').querySelector('iframe'); if (f) f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args }), '*'); };
+  const show = (v) => { dock().classList.toggle('on', v); dock().setAttribute('aria-hidden', v ? 'false' : 'true'); };
+  function playYT() { if (!ready) return; try { player.unMute(); player.setVolume(40); player.playVideo(); } catch {} }
+  function createPlayer() {
+    if (player || !cfg.youtube || !window.YT || !YT.Player) return;
+    const el = document.createElement('div'); $('musicPlayer').replaceChildren(el);
+    player = new YT.Player(el, {
+      width: 200, height: 200, videoId: cfg.youtube,
+      playerVars: { loop: 1, playlist: cfg.youtube, playsinline: 1, rel: 0, controls: 1, origin: location.origin },
+      events: { onReady: () => { ready = true; if (wanted) playYT(); } },
+    });
+  }
+  function loadYT() {
+    if (window.YT && YT.Player) return createPlayer();
+    if (apiLoading) return; apiLoading = true;
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); createPlayer(); };
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(sc);
+  }
   function start() {
+    wanted = true;
     if (cfg.source === 'youtube' && cfg.youtube) {
-      const d = dock(); $('musicTitle').textContent = cfg.title || 'Now playing';
-      if (!$('musicPlayer').querySelector('iframe')) {
-        const id = encodeURIComponent(cfg.youtube);
-        const f = document.createElement('iframe');
-        f.title = cfg.title || 'Background music'; f.allow = 'autoplay; encrypted-media'; f.referrerPolicy = 'strict-origin-when-cross-origin';
-        f.src = `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&playlist=${id}&enablejsapi=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`;
-        f.addEventListener('load', () => setTimeout(() => yt('setVolume', [35]), 800));
-        $('musicPlayer').appendChild(f);
-      } else yt('playVideo');
-      d.hidden = false;
+      $('musicTitle').textContent = cfg.title || 'Now playing'; show(true);
+      if (ready) playYT(); else loadYT();  // if it was still loading, it starts when ready (or tap ▶ in the player)
     } else if (cfg.source === 'upload' && cfg.url) {
-      if (!audio) { audio = new Audio(cfg.url); audio.loop = true; audio.volume = 0.35; }
+      if (!audio) { audio = new Audio(cfg.url); audio.loop = true; audio.volume = 0.4; }
       audio.play().catch(() => {});
     }
   }
   function stop() {
-    if ($('musicPlayer').querySelector('iframe')) yt('pauseVideo');
-    dock().hidden = true;
+    wanted = false;
+    if (ready) { try { player.pauseVideo(); } catch {} }
+    show(false);
     if (audio) audio.pause();
   }
   function configure(c) {
     const next = { source: c.music_source || 'off', youtube: c.music_youtube || '', title: c.music_title || '', url: c.music_url || '' };
     if (JSON.stringify(next) === JSON.stringify(cfg)) return;
-    stop(); $('musicPlayer').innerHTML = ''; audio = null; cfg = next;
+    stop(); clearTimeout(preloadTimer);
+    if (player) { try { player.destroy(); } catch {} }
+    player = null; ready = false; audio = null; cfg = next; $('musicPlayer').innerHTML = '';
+    $('musicTitle').textContent = cfg.title || 'Now playing';
+    if (cfg.source === 'youtube' && cfg.youtube) preloadTimer = setTimeout(loadYT, 2500);
+    if (cfg.source === 'upload' && cfg.url) { audio = new Audio(cfg.url); audio.loop = true; audio.volume = 0.4; audio.preload = 'auto'; }
   }
   return { start, stop, configure };
 })();
 
 /* ───────────── sound (opt-in, off by default) ───────────── */
 const sound = (() => {
-  let ctx = null, on = store.get('yism-sound') === '1', lastTick = 0;
+  let ctx = null, on = false, lastTick = 0;
   const btn = $('sound');
   const sync = () => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   const ac = () => (ctx ||= new (window.AudioContext || window.webkitAudioContext)());
-  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; store.set('yism-sound', on ? '1' : '0'); sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); on = !on; sync(); if (on) { ac().resume(); tick(true); music.start(); } else music.stop(); });
   sync();
-  // a visitor who turned sound on during an earlier visit: resume music at their first tap (browsers need a tap first)
-  if (on) document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#sound')) music.start(); }, { once: true });
   const env = (n, t, a, d, p) => { n.gain.setValueAtTime(0.0001, t); n.gain.exponentialRampToValueAtTime(p, t + a); n.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
   function tick(force) {
     if (!on) return; const now = performance.now(); if (!force && now - lastTick < 45) return; lastTick = now;

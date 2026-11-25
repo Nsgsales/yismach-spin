@@ -55,7 +55,7 @@ def create_app(db_path=None):
     @app.after_request
     def headers(resp):
         resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
-        resp.headers.setdefault('Referrer-Policy', 'same-origin')
+        resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')  # YouTube's player needs the site origin
         if os.environ.get('RAFFLE_ALLOW_INDEXING') != '1' or request.path.startswith(('/api', '/admin')):
             resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
         if app.config['SESSION_COOKIE_SECURE']:
