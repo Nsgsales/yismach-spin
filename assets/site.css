@@ -134,7 +134,7 @@ main,.hero,.nav{position:relative}
 .three canvas{display:block;width:100%!important;height:100%!important;outline:none;cursor:pointer}
 .stage-fallback{position:absolute;inset:0;display:grid;place-items:center}
 .stage-fallback img{width:220px;border-radius:50%;box-shadow:0 0 90px rgba(207,169,95,.45)}
-.spin-counter{position:absolute;left:0;right:0;bottom:11%;margin:0;z-index:4;text-align:center;pointer-events:none;opacity:0;transform:translateY(10px) scale(.96);transition:opacity .35s ease,transform .35s ease;font:500 clamp(38px,4.2vw,56px)/1 var(--serif);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.spin-counter{position:absolute;left:0;right:0;bottom:0;margin:0;z-index:4;text-align:center;pointer-events:none;opacity:0;transform:translateY(10px) scale(.96);transition:opacity .35s ease,transform .35s ease;font:500 clamp(38px,4.2vw,56px)/1 var(--serif);font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .spin-counter.on{opacity:1;transform:none}
 .spin-counter .sc-hash{font-size:.5em;vertical-align:.55em;margin-right:.12em;color:var(--champ-3)}
 .spin-counter .sc-num{display:inline-block;min-width:2.2ch;background:var(--gold);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 4px 18px rgba(0,0,0,.7))}

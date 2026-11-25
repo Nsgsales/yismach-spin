@@ -240,6 +240,53 @@ async function createDreidel(el) {
   pool.rotation.x = -Math.PI / 2; pool.position.y = 0.006;
   plat.add(base, top, ring1, ring2, halo, pool);
 
+  // Entry dial: the platform's front edge is a turning bezel with one tick per entry and a number every 10
+  // (360 entries = one per degree). It stops with the assigned number under the gold pointer at the front.
+  const BEZ_R = 2.88, BEZ_H = 0.42, BEZ_Y = -0.19;
+  const dialCanvas = document.createElement('canvas'); dialCanvas.width = 4096; dialCanvas.height = 256;
+  const dialTex = new THREE.CanvasTexture(dialCanvas); dialTex.colorSpace = THREE.SRGBColorSpace; dialTex.anisotropy = 8;
+  dialTex.wrapS = THREE.RepeatWrapping;
+  const bezel = new THREE.Mesh(new THREE.CylinderGeometry(BEZ_R, BEZ_R, BEZ_H, 360, 1, true),
+    new THREE.MeshBasicMaterial({ map: dialTex, toneMapped: false }));
+  bezel.position.y = BEZ_Y;
+  const dialSpin = new THREE.Group(); dialSpin.add(bezel); plat.add(dialSpin);
+  let dialCount = 0;
+  function drawDial(n) {
+    if (!n || n === dialCount) return; dialCount = n;
+    const g = dialCanvas.getContext('2d'), W = 4096, H = 256;
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#2a2114'); bg.addColorStop(0.12, '#0f0c08'); bg.addColorStop(0.88, '#0b0906'); bg.addColorStop(1, '#2a2114');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(255,214,140,.85)'; g.fillRect(0, 6, W, 3); g.fillRect(0, H - 9, W, 3);
+    const labelEvery = n <= 400 ? 10 : Math.ceil(n / 360) * 10;
+    // texels are ~2.8x wider than tall on the bezel, so text is squeezed horizontally to look right
+    const squeeze = (2 * Math.PI * BEZ_R / W) / (BEZ_H / H);
+    for (let i = 1; i <= n; i++) {
+      if (n > 720 && i % Math.ceil(n / 360)) continue;
+      const x = ((i - 1) / n) * W, major = i % labelEvery === 0, mid = !major && i % 5 === 0;
+      g.fillStyle = major ? 'rgba(255,226,160,.95)' : mid ? 'rgba(236,210,154,.7)' : 'rgba(236,210,154,.4)';
+      const len = major ? 40 : mid ? 28 : 18, w = major ? 3 : 2;
+      g.fillRect(x - w / 2, 12, w, len); g.fillRect(x - w / 2, H - 12 - len, w, len);
+      if (major) {
+        g.save(); g.translate(x, H / 2 + 4); g.scale(1 / squeeze, 1);
+        g.font = '600 122px "Cormorant Garamond", Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        const grad = g.createLinearGradient(0, -50, 0, 50); grad.addColorStop(0, '#fff3d6'); grad.addColorStop(0.5, '#ecd29a'); grad.addColorStop(1, '#b98d45');
+        g.fillStyle = grad; g.fillText(String(i), 0, 0); g.restore();
+      }
+    }
+    dialTex.needsUpdate = true;
+  }
+  drawDial(360);
+  document.fonts && document.fonts.ready.then(() => { const k = dialCount; dialCount = 0; drawDial(k); });
+  // pointer: a glowing gold wedge above the bezel's front, and a hairline across it marking the exact entry
+  const ptrShape = new THREE.Shape(); ptrShape.moveTo(-0.11, 0.2); ptrShape.lineTo(0.11, 0.2); ptrShape.lineTo(0, 0); ptrShape.closePath();
+  const pointer = new THREE.Mesh(new THREE.ShapeGeometry(ptrShape), ringMat); pointer.position.set(0, 0.03, BEZ_R + 0.02);
+  const hair = new THREE.Mesh(new THREE.PlaneGeometry(0.014, BEZ_H + 0.04), ringMat); hair.position.set(0, BEZ_Y, BEZ_R + 0.01);
+  plat.add(pointer, hair);
+  let dialAngle = 0, dialVel = -0.12, dialLanding = null;
+  const dialTarget = (num) => ((-((num - 1) / dialCount) * Math.PI * 2) % TAU_D + TAU_D) % TAU_D;
+  const TAU_D = Math.PI * 2;
+
   const N = innerWidth < 700 ? 90 : 170, pos = new Float32Array(N * 3), seed = new Float32Array(N);
   for (let i = 0; i < N; i++) { const a = Math.random() * 6.283, rr = 1.6 + Math.random() * 3.4; pos.set([Math.cos(a) * rr, Math.random() * 5, Math.sin(a) * rr], i * 3); seed[i] = Math.random(); }
   const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -267,6 +314,13 @@ async function createDreidel(el) {
     const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
     if (!visible && mode === 'idle') return;
     let tHover = 0.32, tWob = 0.05, precRate = 0.9, tZoom = 1;
+    if (mode === 'idle') dialVel += ((reduced ? -0.03 : -0.12) - dialVel) * Math.min(1, dt * 1.5);
+    else if (mode === 'rev') dialVel += (-MAX_V * 0.22 - dialVel) * Math.min(1, dt * 2.2);
+    if (mode === 'land' && dialLanding) {
+      const pd = Math.min(1, (performance.now() - dialLanding.start) / dialLanding.dur), ed = 1 - Math.pow(1 - pd, 3);
+      dialAngle = dialLanding.from + (dialLanding.to - dialLanding.from) * ed;
+    } else if (mode === 'idle' || mode === 'rev') dialAngle += dialVel * dt;
+    dialSpin.rotation.y = dialAngle;
     if (mode === 'idle' || mode === 'revealed') {
       vel += ((reduced ? 0.15 : 0.45) - vel) * Math.min(1, dt * 1.5); angle += vel * dt;
       if (mode === 'revealed') { tHover = 0; tWob = 0.015; tZoom = 0.9; vel = 0; }
@@ -309,10 +363,16 @@ async function createDreidel(el) {
         let to = angle + v0 * (reduced ? 0.6 : 4.4) / 3;
         to += ((desired - (to % TAU)) % TAU + TAU) % TAU;
         landing = { from: angle, to, start: performance.now(), dur: (3 * (to - angle) / v0) * 1000 };
+        // dial: keep turning the same way, ease out over the same time, and stop with this number at the pointer
+        const want = dialTarget(number), raw = Math.abs(dialVel) * (landing.dur / 1000) / 3;
+        const cur = ((dialAngle % TAU_D) + TAU_D) % TAU_D, end = cur - raw;
+        const extra = (((end - want) % TAU_D) + TAU_D) % TAU_D;
+        dialLanding = { from: dialAngle, to: dialAngle - raw - extra, start: landing.start, dur: landing.dur };
         lastQuarter = Math.floor(angle / QUARTER); onLanded = resolve; mode = 'land';
       });
     },
-    abort() { mode = 'idle'; }, idle() { mode = 'idle'; },
+    abort() { mode = 'idle'; dialLanding = null; }, idle() { mode = 'idle'; dialLanding = null; dialVel = -0.12; },
+    setCount(n) { drawDial(n); },
   };
 }
 
@@ -321,7 +381,7 @@ function createFallback() {
   return {
     rev() { img.style.transition = 'transform 1.5s linear'; img.style.transform = 'rotate(1440deg)'; },
     land() { return new Promise(r => { img.style.transition = 'transform 2.4s cubic-bezier(.1,.7,.2,1)'; img.style.transform = 'rotate(2520deg)'; setTimeout(r, 2400); }); },
-    abort() { img.style.transform = ''; }, idle() { img.style.transition = 'none'; img.style.transform = ''; },
+    abort() { img.style.transform = ''; }, idle() { img.style.transition = 'none'; img.style.transform = ''; }, setCount() {},
   };
 }
 
@@ -456,6 +516,7 @@ function renderStatus(s) {
   $('consentNote').textContent = state.processor === 'stripe_test'
     ? 'Stripe test mode: no real charge. Test card 4242 4242 4242 4242, any future date, any CVC.'
     : 'Sandbox demo: no real charge occurs.';
+  if (dreidel && dreidel.setCount) dreidel.setCount(s.max_tickets); else dreidelReady.then(d => d.setCount && d.setCount(s.max_tickets));
   state.max = s.max_tickets; state.unit = s.unit_price_cents; state.remaining = s.remaining; state.open = s.sales_open; state.closedMsg = s.sales_message;
   $$('.maxT').forEach(e => { e.textContent = s.max_tickets; });
   $$('[data-unit]').forEach(e => { e.textContent = money(s.unit_price_cents); });
@@ -585,7 +646,7 @@ async function runSpin(payload) {
   state.busy = true; $$('[data-open-checkout]').forEach(b => { b.disabled = true; }); updateBar();
   const d3 = dreidel || await dreidelReady;
   $('spin').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
-  setHint('Spinning…'); d3.rev(); counter.start();
+  setHint(''); d3.rev(); counter.start();
   let data;
   try {
     const [res] = await Promise.all([
@@ -611,7 +672,7 @@ async function runSpin(payload) {
 /* ───────────── reveal ───────────── */
 function reveal(d) {
   const letter = LETTERS[d.number % 4];
-  setHint(`Landed on ${letter}`);
+  counter.hide(); setHint(`Landed on ${letter} · № ${d.number}`);
   sound.chime(); celebrate();
   $('rLetter').textContent = letter;
   $('rConf').textContent = d.confirmation; $('rAuth').textContent = d.authorization_id || '—';
