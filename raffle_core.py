@@ -495,6 +495,7 @@ class StripeGateway:
             raise ValueError('Stripe LIVE keys need RAFFLE_LIVE_PAYMENTS=1. Otherwise use TEST keys (sk_test_/rk_test_ and pk_test_).')
         self.live = live
         self.name = 'stripe_live' if live else 'stripe_test'
+        self._kind = 'live' if live else 'test'
         self.secret_key, self.publishable_key = secret_key, publishable_key
         self.http = http or _stripe_http
 
@@ -521,7 +522,7 @@ class StripeGateway:
             return False, pi.get('id'), f"Card not authorized (Stripe status: {pi.get('status')})."
         if int(pi.get('amount_capturable') or 0) < amount_cents:
             return False, pi.get('id'), 'Card authorization is lower than the maximum entry amount.'
-        return True, pi['id'], 'Stripe test authorization confirmed.'
+        return True, pi['id'], f'Stripe {self._kind} authorization confirmed.'
 
     def capture(self, authorization_id, amount_cents, email, attempt=1):
         try:
@@ -531,7 +532,7 @@ class StripeGateway:
             return False, None, str(e)
         if pi.get('status') != 'succeeded':
             return False, None, f"Capture not completed (Stripe status: {pi.get('status')})."
-        return True, pi.get('latest_charge') or pi['id'], 'Stripe test capture succeeded; the rest of the hold was released.'
+        return True, pi.get('latest_charge') or pi['id'], f'Stripe {self._kind} capture succeeded; the rest of the hold was released.'
 
     def void(self, authorization_id):
         if not authorization_id:
@@ -548,7 +549,7 @@ class StripeGateway:
             r = self._call('POST', '/v1/refunds', {key: capture_id, 'amount': amount_cents}, idem=f'refund-{capture_id}')
         except StripeError as e:
             return False, None, str(e)
-        return True, r.get('id'), 'Stripe test refund issued.'
+        return True, r.get('id'), f'Stripe {self._kind} refund issued.'
 
 
 def make_gateway(env):
