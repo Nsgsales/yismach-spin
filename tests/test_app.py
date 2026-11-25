@@ -598,3 +598,20 @@ def test_staff_alert_for_every_entry(client, admin):
         _t.sleep(0.05)
     assert len(alerts) == 4 and any(f'New entry #{n}:' in m['subject'] for m in alerts)
     assert 'notify_emails' not in client.get('/api/campaign').json['campaign']  # never public
+
+
+def test_prize_v3_updates_only_untouched_wording():
+    import json, sqlite3
+    import raffle_core as core
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)')
+    c.execute('CREATE TABLE activity(id INTEGER PRIMARY KEY, actor TEXT, action TEXT, detail TEXT)')
+    old = {k: v[0] for k, v in core.PRIZE_V3.items()}
+    old['share_text'] = 'Hand-written share text'
+    c.execute("INSERT INTO settings VALUES('campaign', ?)", (json.dumps(old),))
+    core.apply_prize_v3(c)
+    core.apply_prize_v3(c)  # runs once only
+    data = json.loads(c.execute("SELECT value FROM settings WHERE key='campaign'").fetchone()[0])
+    assert data['intro'] == core.PRIZE_V3['intro'][1]
+    assert data['prize_items'] == core.PRIZE_V3['prize_items'][1]
+    assert data['share_text'] == 'Hand-written share text'

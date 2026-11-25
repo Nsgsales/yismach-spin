@@ -469,6 +469,11 @@ function renderCampaign(c) {
   $('prizeKicker').textContent = c.prizes_confirmed ? 'The grand prize' : 'Proposed prize package';
   if (Array.isArray(c.prize_items) && c.prize_items.length) $('prizeItems').innerHTML = c.prize_items.map(i => `<li>${esc(i)}</li>`).join('');
 
+  const each = String(c.dining_each || '').trim();
+  const eachN = parseInt(each.replace(/[^0-9]/g, ''), 10);
+  $$('[data-dine-each]').forEach(e => { e.textContent = each; });
+  $('dineBadge').hidden = !each;
+  $('dineTotal').textContent = eachN && c.restaurants.length ? '$' + (eachN * c.restaurants.length).toLocaleString() : '';
   const list = $('guideList');
   list.innerHTML = c.restaurants.map((r, i) => `
     <li class="dish"><span class="line"></span>
@@ -476,7 +481,7 @@ function renderCampaign(c) {
       <div>
         ${r.photo ? `<div class="media"><img loading="lazy" src="${esc(r.photo)}" alt=""></div>` : ''}
         ${r.logo ? `<div class="logo"><img loading="lazy" src="${esc(r.logo)}" alt="${esc(r.name)} logo"></div>` : ''}
-        <h3>${esc(r.name)}</h3>
+        <h3>${esc(r.name)}${each ? ` <span class="dine-chip">${esc(each)}</span>` : ''}</h3>
         ${r.location ? `<p class="loc">${esc(r.location)}</p>` : ''}
         ${r.description ? `<p class="desc">${esc(r.description)}</p>` : ''}
       </div>

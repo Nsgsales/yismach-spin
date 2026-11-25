@@ -45,12 +45,12 @@ DEFAULT_CAMPAIGN = {
     "title": "The Golden Spin",
     "subtitle": "The Ultimate Kosher Foodie Experience",
     "headline": "A Year of Fine Dining. On Us.",
-    "intro": "One winner spends the next year dining for two at 10 of New York's most celebrated kosher restaurants, with dinner and the ride home taken care of.",
+    "intro": "One winner gets $300 to spend at each of 10 of New York's most celebrated kosher restaurants, plus a $150 Uber ride for every night out.",
     "tagline": "Dinner is on us. Your ride is on us. Just bring your appetite.",
     "prize_title": "The Grand Prize",
-    "prize_description": "One lucky winner receives dinner for two at each of these 10 restaurants.",
-    "prize_items": ["Dinner for two at 10 premier kosher restaurants.", "A $150 Uber gift card for each restaurant night.",
-                    "$1,500 in total Uber gift cards.", "One extraordinary year of fine dining."],
+    "prize_description": "One lucky winner receives $300 to spend at each of these 10 restaurants: $3,000 in fine dining.",
+    "dining_each": "$300",  # amount at each restaurant; shown in the hero badge and on every restaurant card
+    "prize_items": ["$300 at each of 10 premier kosher restaurants ($3,000 in dining).", "A $150 Uber gift card for each restaurant night ($1,500 in rides).", "Total prize value: $4,500."],
     "prize_image": "",
     "reveal_image": "/assets/img/reveal-rav.jpg", "reveal_caption": "",  # shown on the card that reveals the donor's number
     "hero_images": [f"/assets/img/hero-{i}.jpg" for i in (1, 6, 2, 7, 5)],
@@ -84,7 +84,7 @@ DEFAULT_CAMPAIGN = {
     "end_at": "",
     "sales_paused": False,
     "prizes_confirmed": True,
-    "share_text": "The Golden Spin: win a year of fine dining for two at 10 of New York's best kosher restaurants, rides included. Enter from $1:",
+    "share_text": "The Golden Spin: win $300 at each of 10 of New York's best kosher restaurants, plus $1,500 in Uber rides. Enter from $1:",
     # ── legal & compliance (placeholders until verified; see legal.py) ──
     "org_legal_name": "Yismach Moshe of North Woodmere", "org_nonprofit_status": "a not-for-profit organization",
     "org_ein": "82-3156516", "org_address": "45 Centre St, Woodmere, NY 11598", "org_email": "yismachmosheow@gmail.com",
@@ -119,7 +119,7 @@ DEFAULT_CAMPAIGN = {
 }
 
 PUBLIC_CAMPAIGN_KEYS = ["org_name", "presents", "title", "subtitle", "headline", "intro", "tagline", "prize_title",
-                        "prize_description", "prize_items", "progress_min", "prize_image", "reveal_image", "reveal_caption", "hero_images", "hero_source", "referral_enabled", "referral_threshold", "referral_reward", "referral_terms", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
+                        "prize_description", "dining_each", "prize_items", "progress_min", "prize_image", "reveal_image", "reveal_caption", "hero_images", "hero_source", "referral_enabled", "referral_threshold", "referral_reward", "referral_terms", "music_source", "music_autostart", "music_youtube", "music_title", "music_url", "restaurants", "transport", "winners", "drawing_date",
                         "start_at", "end_at", "prizes_confirmed", "share_text",
                         "org_legal_name", "org_nonprofit_status", "org_ein", "org_address", "org_email", "org_phone",
                         "campaign_purpose", "campaign_number", "rules_version", "free_entry_enabled", "min_age",
@@ -238,10 +238,36 @@ def init_db(path):
             c.execute('ALTER TABLE entries ADD COLUMN ref_code TEXT')
         c.execute('CREATE INDEX IF NOT EXISTS entries_ref ON entries(ref_code)')
         apply_design_v2(c)
+        apply_prize_v3(c)
 
 
 DESIGN_V2_OLD = {'title': 'Spin to Win', 'headline': '10 Restaurants. 10 Date Nights. One Unforgettable Year.', 'intro': "Imagine spending the next year dining for two at 10 of New York's most celebrated kosher restaurants, without worrying about the bill or the ride home.", 'share_text': "A year of date nights at NYC's finest kosher restaurants, with dinner and Uber rides covered. Spin the dreidel from $1:"}
 DESIGN_V2_NEW = {'title': 'The Golden Spin', 'headline': 'A Year of Fine Dining. On Us.', 'intro': "One winner spends the next year dining for two at 10 of New York's most celebrated kosher restaurants, with dinner and the ride home taken care of.", 'share_text': "The Golden Spin: win a year of fine dining for two at 10 of New York's best kosher restaurants, rides included. Enter from $1:"}
+
+
+PRIZE_V3 = {'intro': ("One winner spends the next year dining for two at 10 of New York's most celebrated kosher restaurants, with dinner and the ride home taken care of.", "One winner gets $300 to spend at each of 10 of New York's most celebrated kosher restaurants, plus a $150 Uber ride for every night out."),
+            'prize_description': ('One lucky winner receives dinner for two at each of these 10 restaurants.', 'One lucky winner receives $300 to spend at each of these 10 restaurants: $3,000 in fine dining.'),
+            'share_text': ("The Golden Spin: win a year of fine dining for two at 10 of New York's best kosher restaurants, rides included. Enter from $1:", "The Golden Spin: win $300 at each of 10 of New York's best kosher restaurants, plus $1,500 in Uber rides. Enter from $1:"),
+            'prize_items': (['Dinner for two at 10 premier kosher restaurants.', 'A $150 Uber gift card for each restaurant night.', '$1,500 in total Uber gift cards.', 'One extraordinary year of fine dining.'], ['$300 at each of 10 premier kosher restaurants ($3,000 in dining).', 'A $150 Uber gift card for each restaurant night ($1,500 in rides).', 'Total prize value: $4,500.'])}
+
+
+def apply_prize_v3(c):
+    """$300 per restaurant: update the stored default prize wording once; hand-edited text stays as it is."""
+    if c.execute("SELECT 1 FROM settings WHERE key='migration_prize_v3'").fetchone():
+        return
+    row = c.execute("SELECT value FROM settings WHERE key='campaign'").fetchone()
+    if row:
+        data = json.loads(row[0]); changed = []
+        for k, (old, new) in PRIZE_V3.items():
+            cur = data.get(k)
+            if isinstance(cur, str):
+                cur = cur.replace('\u2019', "'")
+            if cur == old:
+                data[k] = new; changed.append(k)
+        c.execute("UPDATE settings SET value=? WHERE key='campaign'", (json.dumps(data),))
+        if changed:
+            log(c, 'system', 'prize_v3_applied', fields=changed)
+    c.execute("INSERT INTO settings(key,value) VALUES('migration_prize_v3','1')")
 
 
 def apply_design_v2(c):
@@ -665,7 +691,7 @@ def validate_campaign(data, current):
     """Merge admin edits into the campaign config with type checks."""
     out = copy.deepcopy(current)
     text_keys = ['org_name', 'presents', 'title', 'subtitle', 'headline', 'intro', 'tagline', 'prize_title',
-                 'prize_description', 'prize_image', 'reveal_image', 'reveal_caption', 'drawing_date', 'start_at', 'end_at', 'share_text',
+                 'prize_description', 'dining_each', 'prize_image', 'reveal_image', 'reveal_caption', 'drawing_date', 'start_at', 'end_at', 'share_text',
                  'email_subject', 'email_body']
     for k in text_keys:
         if k in data:
