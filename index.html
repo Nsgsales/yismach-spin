@@ -28,7 +28,13 @@
 
 <nav class="nav" id="nav">
   <a class="brand" href="#top"><img src="/assets/logo.png" alt="" width="36" height="36"><span data-c="title">Spin to Win</span></a>
-  <button class="nav-cta" type="button" data-open-checkout>Enter from <span data-unit>$1</span></button>
+  <div class="nav-right">
+    <button class="sound" id="sound" type="button" aria-pressed="false" title="Music and sound">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l5 6M21 9l-5 6"/></svg>
+        <span class="snd-label">Music</span>
+      </button>
+    <button class="nav-cta" type="button" data-open-checkout>Enter from <span data-unit>$1</span></button>
+  </div>
 </nav>
 
 <header class="hero" id="top">
@@ -57,10 +63,6 @@
       <div id="three" class="three" aria-hidden="true"></div>
       <div class="stage-fallback" id="fallback" hidden><img src="/assets/logo.png" alt=""></div>
       <p class="stage-hint" id="spinHint" aria-live="polite"></p>
-      <button class="sound" id="sound" type="button" aria-pressed="false" title="Music and sound">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l5 6M21 9l-5 6"/></svg>
-        <span class="sr-only">Music and sound</span>
-      </button>
     </div>
   </div>
   <a class="scroll-cue" href="#guide" aria-label="See the restaurants"><span></span></a>

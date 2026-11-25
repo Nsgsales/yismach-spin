@@ -135,7 +135,11 @@ main,.hero,.nav{position:relative}
 .stage-fallback{position:absolute;inset:0;display:grid;place-items:center}
 .stage-fallback img{width:220px;border-radius:50%;box-shadow:0 0 90px rgba(207,169,95,.45)}
 .stage-hint{position:absolute;left:0;right:0;bottom:2%;margin:0;text-align:center;font:600 11px/1.4 var(--sans);letter-spacing:.3em;text-transform:uppercase;color:var(--champ-2);opacity:.85;pointer-events:none}
-.sound{position:absolute;right:0;top:4%;width:44px;height:44px;border-radius:50%;border:1px solid var(--hair);background:rgba(5,6,10,.45);display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(8px);z-index:3}
+.nav-right{display:flex;align-items:center;gap:10px}
+.sound{height:38px;padding:0 14px 0 11px;border-radius:999px;border:1px solid rgba(236,210,154,.4);background:rgba(5,6,10,.35);display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:var(--champ-1);font:600 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.sound:hover{background:rgba(236,210,154,.12);border-color:var(--champ-2)}
+.sound[aria-pressed=true]{border-color:var(--champ-2);background:rgba(236,210,154,.14)}
+@media (max-width:860px){.sound{width:38px;padding:0;justify-content:center}.snd-label{display:none}}
 .sound svg{width:19px;height:19px;fill:none;stroke:var(--champ-2);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .sound .spk{fill:var(--champ-2)}
 .sound .wave{display:none}.sound[aria-pressed=true] .wave{display:block}.sound[aria-pressed=true] .mute{display:none}
