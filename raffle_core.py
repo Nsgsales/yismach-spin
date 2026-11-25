@@ -52,7 +52,7 @@ DEFAULT_CAMPAIGN = {
     "prize_items": ["Dinner for two at 10 premier kosher restaurants.", "A $150 Uber gift card for each restaurant night.",
                     "$1,500 in total Uber gift cards.", "One extraordinary year of fine dining."],
     "prize_image": "",
-    "reveal_image": "", "reveal_caption": "",  # shown on the card that reveals the donor's number
+    "reveal_image": "/assets/img/reveal-rav.jpg", "reveal_caption": "",  # shown on the card that reveals the donor's number
     "hero_images": [f"/assets/img/hero-{i}.jpg" for i in (1, 6, 2, 7, 5)],
     "hero_source": "restaurants",
     # Share-and-earn links: every participant (or anyone who signs up) gets a personal link. Paid entries made by
