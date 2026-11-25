@@ -1,5 +1,6 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
-# Deploys the fundraising platform at spin.yismachmosheofwoodmere.com.
+# Deploys the fundraising platform. Add the custom domain spin.yismachmosheofwoodmere.com
+# in the Render dashboard (Settings > Custom Domains) after the first deploy.
 # Payments stay in TEST mode: the app refuses live Stripe keys and any RAFFLE_PAYMENT_MODE other than "sandbox".
 services:
   - type: web
@@ -11,8 +12,6 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 60
     healthCheckPath: /api/status
     autoDeploy: true         # every update pushed to GitHub deploys automatically
-    domains:
-      - spin.yismachmosheofwoodmere.com
     disk:
       name: data
       mountPath: /var/data
