@@ -278,28 +278,43 @@ function setHint(text) { const h = $('spinHint'); h.textContent = text; if (gsap
 /* ───────────── campaign content ───────────── */
 function setText(sel, v) { $$(sel).forEach(e => { if (v) e.textContent = v; }); }
 let slideTimer = null, slideSig = '';
-// list: [{img, logo?, name?}]. Restaurant slides also show that restaurant's logo and name in the corner.
+// list: [{img, logo?, name?}]. Restaurant slides also show that restaurant's logo and name: in the side list on wide
+// screens (the highlight moves down the list as the photos change; click a name to jump to it), or a small label on phones.
 function setSlides(list) {
-  const sig = list.map(s => s.img + (s.logo || '')).join('|'); if (sig === slideSig) return; slideSig = sig;
-  const box = $('heroSlides'), cap = $('heroCaption'); clearInterval(slideTimer);
+  const sig = list.map(s => s.img + (s.logo || '') + (s.name || '')).join('|'); if (sig === slideSig) return; slideSig = sig;
+  const box = $('heroSlides'), cap = $('heroCaption'), rail = $('heroRail'); clearInterval(slideTimer);
+  const period = reduced ? 9000 : 5500;
   box.innerHTML = list.map(s => `<div class="slide" style="background-image:url('${esc(s.img)}')"></div>`).join('');
   document.querySelector('.hero').classList.toggle('has-slides', list.length > 0);
-  const slides = [...box.children]; if (!slides.length) { cap.innerHTML = ''; return; }
-  const caption = (s) => {
+  const slides = [...box.children]; if (!slides.length) { cap.innerHTML = ''; rail.hidden = true; return; }
+  const named = list.every(s => s.name);
+  rail.hidden = !named;
+  rail.style.setProperty('--period', period + 'ms');
+  rail.innerHTML = named ? `<div class="rail-logo" id="railLogo"></div><ol>${list.map((s, n) => `<li><button type="button" data-slide="${n}"><span class="rn">${String(n + 1).padStart(2, '0')}</span><span class="rt">${esc(s.name)}</span><i class="rbar"></i></button></li>`).join('')}</ol>` : '';
+  const items = [...rail.querySelectorAll('li')];
+  const label = (s) => {
     cap.classList.remove('on');
+    const lg = $('railLogo'); if (lg) lg.classList.remove('on');
     setTimeout(() => {
       cap.innerHTML = s.name ? `${s.logo ? `<img src="${esc(s.logo)}" alt="">` : ''}<span>${esc(s.name)}</span>` : '';
       if (s.name) cap.classList.add('on');
+      if (lg) { lg.innerHTML = s.logo ? `<img src="${esc(s.logo)}" alt="">` : ''; if (s.logo) lg.classList.add('on'); }
     }, 450);
   };
-  let i = 0; slides[0].classList.add('on'); caption(list[0]);
+  let i = -1;
+  const show = (n) => {
+    if (n === i) return;
+    const prev = slides[i];
+    if (prev) { prev.classList.add('out'); prev.classList.remove('on'); setTimeout(() => prev.classList.remove('out'), 2000); }
+    i = n; slides[i].classList.add('on'); label(list[i]);
+    items.forEach((li, k) => { li.classList.toggle('on', k === i); li.classList.toggle('past', k < i); });
+    const bar = items[i] && items[i].querySelector('.rbar'); if (bar) { bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; }
+  };
+  const start = () => { clearInterval(slideTimer); if (slides.length > 1) slideTimer = setInterval(() => show((i + 1) % slides.length), period); };
+  rail.onclick = (e) => { const b = e.target.closest('[data-slide]'); if (b) { show(+b.dataset.slide); start(); } };
+  show(0); start();
   // preload the rest so each fade is clean
   list.slice(1).forEach(s => { const im = new Image(); im.src = s.img; if (s.logo) { const lg = new Image(); lg.src = s.logo; } });
-  if (slides.length > 1) slideTimer = setInterval(() => {
-    const prev = slides[i]; i = (i + 1) % slides.length;
-    slides[i].classList.add('on'); prev.classList.add('out'); prev.classList.remove('on'); caption(list[i]);
-    setTimeout(() => prev.classList.remove('out'), 2000);
-  }, reduced ? 9000 : 5500);
 }
 
 function renderCampaign(c) {
