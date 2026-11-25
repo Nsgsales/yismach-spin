@@ -40,9 +40,11 @@ def context(camp, info, site_url=''):
         purpose=ph(camp.get('campaign_purpose'), 'Purpose of the fundraising campaign'),
         number=ph(camp.get('campaign_number'), 'Campaign identification number'),
         title=camp['title'], n=n, min=core.money(unit), max=core.money(unit * n), unit=core.money(unit),
-        start=fmt_dt(camp.get('start_at')) or '[[Opening date and time]]',
-        end=fmt_dt(camp.get('end_at')) or '[[Entry deadline (date and time)]]',
-        drawing=ph(camp.get('drawing_date'), 'Drawing date and time'),
+        # No dates set yet: open-ended wording. Entering a date in the admin replaces it automatically.
+        start=fmt_dt(camp.get('start_at')) or 'the date these Official Rules are first posted on the website',
+        end=fmt_dt(camp.get('end_at')) or 'the closing date the Sponsor announces on the website at least 7 days in advance',
+        drawing=fmt_dt(camp.get('drawing_date')) or (camp.get('drawing_date') or '').strip() or
+        'a date the Sponsor announces on the website, within 30 days after entries close',
         method=ph(camp.get('drawing_method'), 'Drawing procedure, e.g. conducted live and in public view, and where it can be watched'),
         age=int(camp.get('min_age') or 18),
         regions=ph(camp.get('eligible_regions'), 'Eligible states/countries, as approved by counsel'),
@@ -114,8 +116,8 @@ def rules_sections(camp, x):
         {'h': '4. Campaign Period', 'p': [
             f'Entries open on {x["start"]} and close on {x["end"]}, or as soon as all {x["n"]} entries have been issued, whichever comes '
             f'first (the "Entry Period"). All times are Eastern Time, and the Sponsor\'s server clock is the official timekeeper.',
-            f'If all {x["n"]} entries are issued before the scheduled deadline, entries close immediately for both entry methods, and '
-            f'the drawing still takes place on {x["drawing"]}.']},
+            f'If all {x["n"]} entries are issued before the closing date, entries close immediately for both entry methods, and '
+            f'the drawing takes place on {x["drawing"]}.']},
         {'h': '5. Entry Methods', 'p': [
             f'(a) Donation entry. Visit {x["site"]}, provide your name, email address and telephone number, review and accept the payment '
             f'authorization, and spin. The system assigns a random, unused entry number from 1 to {x["n"]}. Your donation amount equals '
