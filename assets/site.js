@@ -278,18 +278,26 @@ function setHint(text) { const h = $('spinHint'); h.textContent = text; if (gsap
 /* ───────────── campaign content ───────────── */
 function setText(sel, v) { $$(sel).forEach(e => { if (v) e.textContent = v; }); }
 let slideTimer = null, slideSig = '';
+// list: [{img, logo?, name?}]. Restaurant slides also show that restaurant's logo and name in the corner.
 function setSlides(list) {
-  const sig = list.join('|'); if (sig === slideSig) return; slideSig = sig;
-  const box = $('heroSlides'); clearInterval(slideTimer);
-  box.innerHTML = list.map(u => `<div class="slide" style="background-image:url('${esc(u)}')"></div>`).join('');
+  const sig = list.map(s => s.img + (s.logo || '')).join('|'); if (sig === slideSig) return; slideSig = sig;
+  const box = $('heroSlides'), cap = $('heroCaption'); clearInterval(slideTimer);
+  box.innerHTML = list.map(s => `<div class="slide" style="background-image:url('${esc(s.img)}')"></div>`).join('');
   document.querySelector('.hero').classList.toggle('has-slides', list.length > 0);
-  const slides = [...box.children]; if (!slides.length) return;
-  let i = 0; slides[0].classList.add('on');
+  const slides = [...box.children]; if (!slides.length) { cap.innerHTML = ''; return; }
+  const caption = (s) => {
+    cap.classList.remove('on');
+    setTimeout(() => {
+      cap.innerHTML = s.name ? `${s.logo ? `<img src="${esc(s.logo)}" alt="">` : ''}<span>${esc(s.name)}</span>` : '';
+      if (s.name) cap.classList.add('on');
+    }, 450);
+  };
+  let i = 0; slides[0].classList.add('on'); caption(list[0]);
   // preload the rest so each fade is clean
-  list.slice(1).forEach(u => { const im = new Image(); im.src = u; });
+  list.slice(1).forEach(s => { const im = new Image(); im.src = s.img; if (s.logo) { const lg = new Image(); lg.src = s.logo; } });
   if (slides.length > 1) slideTimer = setInterval(() => {
     const prev = slides[i]; i = (i + 1) % slides.length;
-    slides[i].classList.add('on'); prev.classList.add('out'); prev.classList.remove('on');
+    slides[i].classList.add('on'); prev.classList.add('out'); prev.classList.remove('on'); caption(list[i]);
     setTimeout(() => prev.classList.remove('out'), 2000);
   }, reduced ? 9000 : 5500);
 }
@@ -301,7 +309,9 @@ function renderCampaign(c) {
   // headline: one line per sentence, last line in gold italic
   const lines = (c.headline || '').split(/(?<=\.)\s+/).filter(Boolean);
   $('headline').innerHTML = lines.map(l => `<span class="l"><span>${esc(l)}</span></span>`).join('');
-  setSlides(c.hero_images || []);
+  const fromRestaurants = (c.restaurants || []).filter(r => r.photo).map(r => ({ img: r.photo, logo: r.logo, name: r.name }));
+  const custom = (c.hero_images || []).map(u => ({ img: u }));
+  setSlides(c.hero_source === 'custom' || !fromRestaurants.length ? custom : fromRestaurants);
   $('pending').hidden = $('termsPending').hidden = !!c.prizes_confirmed;
   $('prizeKicker').textContent = c.prizes_confirmed ? 'The grand prize' : 'Proposed prize package';
   if (Array.isArray(c.prize_items) && c.prize_items.length) $('prizeItems').innerHTML = c.prize_items.map(i => `<li>${esc(i)}</li>`).join('');
