@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05060a">
+<title>Spin to Win · K’hal Yismach Moshe</title>
+<meta name="description" content="A year of date nights at New York’s finest kosher restaurants, with dinner and your ride taken care of.">
+<link rel="icon" href="/assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Cinzel:wght@500;600;700&family=Frank+Ruhl+Libre:wght@700;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
+</head>
+<body>
+<canvas id="dust" aria-hidden="true"></canvas>
+
+<div class="sandbox-pill" role="note"><span class="dot"></span><span>Test mode · no real charges</span></div>
+
+<nav class="nav" id="nav">
+  <a class="brand" href="#top"><img src="/assets/logo.png" alt="" width="36" height="36"><span data-c="title">Spin to Win</span></a>
+  <button class="nav-cta" type="button" data-open-checkout>Enter from <span data-unit>$1</span></button>
+</nav>
+
+<header class="hero" id="top">
+  <div class="hero-bg" aria-hidden="true"><div class="hero-photo"></div><div class="hero-slides" id="heroSlides"></div><div class="hero-grade"></div></div>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <img class="crest" src="/assets/logo.png" alt="K’hal Yismach Moshe" width="96" height="96">
+      <p class="kicker"><span data-c="presents">K’hal Yismach Moshe presents</span></p>
+      <p class="wordmark"><span data-c="title">Spin to Win</span><span class="dash"></span><span class="sub" data-c="subtitle">The Ultimate Kosher Foodie Experience</span></p>
+      <h1 class="headline" id="headline">10 Restaurants. 10 Date Nights. One Unforgettable Year.</h1>
+      <a class="ride-badge" id="rideBadge" href="#ride"><span class="rb-car" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11m-14 0h14m-14 0a2 2 0 0 0-2 2v3h2m14-5a2 2 0 0 1 2 2v3h-2M5 16v2m14-2v2M5 16h14M7.5 13.5h.01M16.5 13.5h.01"/></svg></span><span class="rb-text"><b>Transportation included</b><span>Every date night comes with a <em id="rbPer">$150</em> Uber ride · <em id="rbTotal">$1,500</em> total</span></span></a>
+      <p class="intro" data-c="intro">Imagine spending the next year dining for two at 10 of New York’s most celebrated kosher restaurants, without worrying about the bill or the ride home.</p>
+      <ul class="pillars tickets">
+        <li><span class="p-num"><span class="maxT">360</span></span><span class="p-lbl">entries only</span></li>
+        <li><span class="p-num"><span data-unit>$1</span>–<span class="maxPriceT">$360</span></span><span class="p-lbl">donation per entry</span></li>
+        <li><span class="p-num">1</span><span class="p-lbl">grand prize winner</span></li>
+      </ul>
+      <div class="hero-actions">
+        <button class="cta" id="cta" type="button" data-open-checkout><span>Spin the Dreidel</span></button>
+        <p class="avail"><strong id="remaining">—</strong> of <span class="maxT">360</span> entries left<br><span>Enter for as little as <b data-unit>$1</b></span></p>
+      </div>
+    </div>
+
+    <div class="stage" id="spin">
+      <div id="three" class="three" aria-hidden="true"></div>
+      <div class="stage-fallback" id="fallback" hidden><img src="/assets/logo.png" alt=""></div>
+      <p class="stage-hint" id="spinHint" aria-live="polite"></p>
+      <button class="sound" id="sound" type="button" aria-pressed="false" title="Sound effects">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l5 6M21 9l-5 6"/></svg>
+        <span class="sr-only">Sound effects</span>
+      </button>
+    </div>
+  </div>
+  <a class="scroll-cue" href="#guide" aria-label="See the restaurants"><span></span></a>
+</header>
+
+<main>
+  <section class="overview" id="prize" aria-labelledby="prize-h">
+    <div class="ov-card ov-prize">
+      <p class="kicker" id="prizeKicker">Proposed prize package</p>
+      <h2 id="prize-h" class="ov-title" data-c="prize_title">The Grand Prize</h2>
+      <ul class="ov-list" id="prizeItems">
+        <li>Dinner for two at 10 premier kosher restaurants.</li>
+        <li>$1,500 in Uber gift cards.</li>
+        <li>$150 in transportation credit for every date night.</li>
+        <li>One extraordinary year of fine dining.</li>
+      </ul>
+      <p class="ov-tagline" data-c="tagline">Dinner is on us. Your ride is on us. Just bring your appetite.</p>
+      <p class="pending" id="pending"><span class="tag">Pending confirmation</span> Restaurant participation and prize terms are being confirmed.</p>
+    </div>
+    <div class="ov-card ov-how">
+      <p class="kicker">How it works</p>
+      <h2 class="ov-title">Spin. Reveal. <em>Win the year.</em></h2>
+      <ol class="ov-steps">
+        <li><span>01</span><p>Only <b class="maxT">360</b> exclusive numbered entries.</p></li>
+        <li><span>02</span><p>Spin the dreidel to reveal your randomly assigned donation amount, ranging from <b data-unit>$1</b> to <b class="maxPriceT">$360</b>.</p></li>
+        <li><span>03</span><p>One lucky winner takes home the entire luxury dining experience.</p></li>
+      </ol>
+      <div class="ov-cta"><button class="cta" type="button" data-open-checkout><span>Spin the Dreidel</span></button><p>Donate as little as <b data-unit>$1</b> · As a thank-you, you are entered into the drawing</p></div>
+      <p class="npn" data-npn><strong>No purchase or donation necessary to enter or win.</strong> Making a contribution will not improve your odds of winning. Eligible free entries and donation-based entries receive equal treatment. Void where prohibited. See <a href="/rules">Official Rules</a> and <a href="/free-entry">Free Entry Instructions</a> for complete details.</p>
+    </div>
+  </section>
+
+  <section class="ride" id="ride" aria-labelledby="ride-h">
+    <div class="ride-bg" aria-hidden="true"><div class="ride-photo" id="ridePhoto"></div><div class="ride-grade"></div></div>
+    <div class="ride-inner">
+      <div class="ride-copy">
+      <div class="ride-brand" id="rideBrand"><span class="uber-word">Uber</span></div>
+      <h2 id="ride-h" class="ride-title" data-c-t="title">Your ride is on us!</h2>
+      <p class="ride-amount"><span id="rideAmount">$1,500</span></p>
+      <p class="ride-label" id="rideLabel">in Uber gift cards</p>
+      <p class="ride-detail" id="rideDetail">The winner receives a $150 Uber gift card for each of the 10 date nights.</p>
+      <ul class="ride-points">
+        <li><strong id="ridePer">$150</strong><span>every date night</span></li>
+        <li><strong>Door</strong><span>to door, both ways</span></li>
+        <li><strong>Zero</strong><span>parking, zero hassle</span></li>
+      </ul>
+      </div>
+      <div class="cards-stack" aria-hidden="true" id="cardStack"></div>
+    </div>
+  </section>
+
+  <section class="guide" id="guide" aria-labelledby="guide-h">
+    <div class="section-head">
+      <p class="kicker">The Dining Guide</p>
+      <h2 id="guide-h" class="section-title">Ten tables.<br><em>Ten evenings for two.</em></h2>
+      <p class="section-lede" data-c="prize_description">One lucky winner receives dinner for two at each of these 10 restaurants.</p>
+    </div>
+    <ol class="guide-list" id="guideList"></ol>
+  </section>
+
+  <section class="play" id="play" aria-labelledby="play-h">
+    <div class="section-head">
+      <p class="kicker">Spin to Win</p>
+      <h2 id="play-h" class="section-title">Your number <em>is your donation.</em></h2>
+    </div>
+    <ol class="steps">
+      <li><span class="step-n">01</span><h3>Spin the dreidel</h3><p>Our server draws a random, unused number from 1 to <span class="maxT">360</span>.</p></li>
+      <li><span class="step-n">02</span><h3>Donate your number</h3><p>Land on 18, your donation is <span data-ex>$18</span>. Every number is issued only once.</p></li>
+      <li><span class="step-n">03</span><h3>One lucky winner</h3><p>One winner takes home the whole year: every dinner and every ride.</p></li>
+    </ol>
+    <div class="facts">
+      <div><strong class="maxT">360</strong><span>numbered entries</span></div>
+      <div><strong><span data-unit>$1</span>–<span id="maxPrice">$360</span></strong><span>donation per entry</span></div>
+      <div><strong id="remaining2">—</strong><span>still available</span></div>
+      <div><strong>1</strong><span>grand prize winner</span></div>
+    </div>
+    <div class="play-cta"><button class="cta" type="button" data-open-checkout><span>Spin the Dreidel</span></button></div>
+  </section>
+
+  <footer class="foot">
+    <img src="/assets/logo.png" alt="" width="64" height="64">
+    <p class="foot-org" data-c="org_name">K’hal Yismach Moshe</p>
+    <div class="foot-legal" id="footLegal"></div>
+    <p class="npn foot-npn" data-npn><strong>No purchase or donation necessary to enter or win.</strong> Making a contribution will not improve your odds of winning. Eligible free entries and donation-based entries receive equal treatment. Void where prohibited. See <a href="/rules">Official Rules</a> and <a href="/free-entry">Free Entry Instructions</a> for complete details.</p>
+    <nav class="foot-links" aria-label="Legal"><a href="/rules">Official Rules</a><a href="/free-entry">Free Entry Instructions</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms and Conditions</a><a href="/contact">Contact Us</a><a href="/winners">Winner Information</a></nav>
+    <p class="fine" id="terms">As a thank-you for your donation, you are entered into the drawing. Payments currently run in test mode: no real charges are made. <span id="termsPending">Restaurant participation and prize terms are subject to confirmation before publication.</span> The participating restaurants and Uber are not sponsors of the giveaway; their names identify where the prize gift cards can be used.</p>
+    <p class="fine" id="drawInfo"></p>
+    <p class="credits">Restaurant logos and food photography from each restaurant’s own website, used to identify the participating restaurants. Additional food photography by Urban Gyllström and Caroline Attwood via Unsplash. City photography: “New York Midtown Skyline at night” by Diliff, CC BY-SA 3.0; “New York City at night HDR” by Paulo Barcellos Jr., CC BY-SA 2.0; via Wikimedia Commons.</p>
+  </footer>
+</main>
+
+<div class="mobile-bar" id="mobileBar">
+  <div><strong id="mbRemaining">—</strong> left · from <span data-unit>$1</span></div>
+  <button class="cta small" type="button" data-open-checkout><span>Spin</span></button>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-backdrop" data-close></div>
+  <form class="sheet-panel" id="checkout" novalidate aria-labelledby="co-h" role="dialog" aria-modal="true">
+    <button class="close" type="button" data-close aria-label="Close">×</button>
+    <div class="progress"><span class="on"></span><span id="p2"></span></div>
+    <div class="step" id="step1">
+      <p class="kicker">Step 1 of 2</p>
+      <h2 id="co-h">Who’s spinning?</h2>
+      <label class="field"><span>Full name</span><input id="name" autocomplete="name" maxlength="120" required></label>
+      <label class="field"><span>Email</span><input id="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required></label>
+      <label class="field"><span>Phone</span><input id="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="32" required></label>
+      <p class="hint">Your entry number is emailed to you.</p>
+      <button class="cta" type="button" id="next"><span>Continue</span></button>
+    </div>
+    <div class="step" id="step2" hidden>
+      <p class="kicker">Step 2 of 2</p>
+      <h2>Authorize your donation</h2>
+      <p class="auth-lede">Your card is authorized for up to <b class="maxPriceT">$360</b> before you spin. You are charged only the number the dreidel lands on.</p>
+      <div class="authbox">
+        <div><span>Possible donation</span><strong><span data-unit>$1</span> – <span class="maxPriceT">$360</span></strong></div>
+        <div><span>You’re charged</span><strong>Your number only</strong></div>
+      </div>
+      <div class="payel" id="payEl" hidden></div>
+      <label class="consent"><input type="checkbox" id="consent"><span><span id="authText">I authorize a charge of the randomly assigned donation amount, between <b data-unit>$1</b> and <b class="maxPriceT">$360</b>.</span> <em id="consentNote">Sandbox demo: no real charge occurs.</em></span></label>
+      <label class="consent"><input type="checkbox" id="consentRules"><span>I am at least <span class="minAge">18</span> years old, I am eligible under the <a href="/rules" target="_blank">Official Rules</a>, and I agree to the Official Rules and the <a href="/privacy" target="_blank">Privacy Policy</a>.</span></label>
+      <label class="consent optional"><input type="checkbox" id="marketing"><span id="marketingText">Keep me informed about future events and fundraisers (optional).</span></label>
+      <p class="npn small" data-npn><strong>No purchase or donation necessary.</strong> A contribution does not improve your odds. <a href="/free-entry" target="_blank">Enter for free</a> · <a href="/rules" target="_blank">Official Rules</a></p>
+      <button class="cta" type="submit" id="go"><span>Spin the Dreidel</span></button>
+      <button class="link" type="button" id="back">Back</button>
+    </div>
+    <p class="error" id="error" role="alert"></p>
+  </form>
+</div>
+
+<div class="reveal-layer" id="reveal" hidden role="dialog" aria-modal="true" aria-labelledby="rv-h">
+  <div class="reveal-backdrop"></div>
+  <div class="reveal-card">
+    <p class="kicker" id="rv-h">The dreidel landed on <span id="rLetter"></span></p>
+    <p class="big-number"><span class="hash">№</span><span id="rNumber">0</span></p>
+    <p class="r-amount"><span id="rAmount">$0</span><span class="r-amount-l">your donation</span></p>
+    <p class="r-status" id="rStatus"></p>
+    <dl class="r-meta">
+      <div><dt>Confirmation</dt><dd id="rConf">—</dd></div>
+      <div><dt>Authorization</dt><dd id="rAuth">—</dd></div>
+    </dl>
+    <div class="r-actions">
+      <a class="share" id="share" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>Share on WhatsApp</a>
+      <button class="ghost" id="again" type="button">Enter again</button>
+      <button class="link" id="done" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/assets/site.js"></script>
+</body>
+</html>

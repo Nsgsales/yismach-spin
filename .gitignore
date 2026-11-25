@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+raffle.sqlite*
+uploads/
+archive/
+admin-login.env
+.env
+tests/.uploads/
+tests/.import-only.sqlite

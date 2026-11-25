@@ -1,0 +1,58 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Deploys the fundraising platform at spin.yismachmosheofwoodmere.com.
+# Payments stay in TEST mode: the app refuses live Stripe keys and any RAFFLE_PAYMENT_MODE other than "sandbox".
+services:
+  - type: web
+    name: yismach-spin
+    runtime: python
+    plan: starter            # a persistent disk needs a paid instance
+    region: virginia
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 60
+    healthCheckPath: /api/status
+    autoDeploy: false
+    domains:
+      - spin.yismachmosheofwoodmere.com
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: RAFFLE_ENV
+        value: production
+      - key: RAFFLE_PROXY_FIX
+        value: "1"
+      - key: RAFFLE_SECURE_COOKIES
+        value: "1"
+      - key: RAFFLE_DB
+        value: /var/data/raffle.sqlite
+      - key: RAFFLE_UPLOADS
+        value: /var/data/uploads
+      - key: RAFFLE_ARCHIVE
+        value: /var/data/archive
+      - key: RAFFLE_SECRET_KEY
+        generateValue: true
+      - key: RAFFLE_ADMIN_TOKEN
+        generateValue: true
+      - key: RAFFLE_ADMIN_USER
+        value: admin
+      - key: RAFFLE_ADMIN_PASSWORD     # enter in the Render dashboard (12+ characters)
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_STARTTLS
+        value: "1"
+      - key: SMTP_USER
+        value: yismachmosheow@gmail.com
+      - key: SMTP_FROM
+        value: Yismach Moshe of North Woodmere <yismachmosheow@gmail.com>
+      - key: SMTP_PASSWORD             # Gmail app password, entered in the Render dashboard
+        sync: false
+      - key: STRIPE_SECRET_KEY         # sk_test_... only, entered in the Render dashboard
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY    # pk_test_...
+        sync: false

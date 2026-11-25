@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Raffle Admin · K’hal Yismach Moshe</title>
+<link rel="icon" href="/assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body>
+<section class="login" id="login" hidden>
+  <form class="login-card" id="loginForm">
+    <img src="/assets/logo.png" alt="" width="64" height="64">
+    <h1>Raffle administration</h1>
+    <p class="muted">Authorized administrators only.</p>
+    <label>Username<input id="lu" autocomplete="username" required></label>
+    <label>Password<input id="lp" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p class="err" id="loginErr" role="alert"></p>
+  </form>
+</section>
+
+<div class="shell" id="shell" hidden>
+  <aside class="side">
+    <div class="side-brand"><img src="/assets/logo.png" alt="" width="34" height="34"><div><strong id="campName">Spin to Win</strong><span>Administration</span></div></div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="on">Overview</button>
+      <button data-tab="entries">Entries</button>
+      <button data-tab="payments">Payments</button>
+      <button data-tab="emails">Emails</button>
+      <button data-tab="drawing">Drawing</button>
+      <button data-tab="campaign">Campaign</button>
+      <button data-tab="checklist">Launch checklist</button>
+      <button data-tab="activity">Activity</button>
+    </nav>
+    <div class="side-foot"><span class="badge sbx">Sandbox payments</span><span class="badge sbx" id="legalBadge" hidden>Legal: not approved</span><a href="/" target="_blank" rel="noopener">View site ↗</a><button class="linkbtn" id="logout">Sign out</button></div>
+  </aside>
+
+  <main class="main">
+    <div class="toast" id="toast" role="status" hidden></div>
+
+    <section class="panel" data-panel="overview">
+      <header class="ph"><h2>Overview</h2><div class="ph-actions"><button class="btn" id="refresh">Refresh</button><a class="btn" href="/api/admin/export" id="exportBtn">Export CSV</a></div></header>
+      <div class="stats" id="stats"></div>
+      <div class="card">
+        <div class="card-h"><h3>Ticket board</h3><div class="legend"><span class="k paid"></span>Paid<span class="k pending_capture"></span>Pending<span class="k capture_failed"></span>Failed<span class="k refunded"></span>Refunded<span class="k mailin"></span>Free (mail-in)<span class="k free"></span>Available</div></div>
+        <div class="grid" id="grid"></div>
+        <p class="muted small" id="gridInfo"></p>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="entries" hidden>
+      <header class="ph"><h2>Entries</h2><div class="ph-actions"><button class="btn primary" id="addFree">+ Register mail-in entry</button></div></header>
+      <div class="filters"><input type="search" id="q" placeholder="Search name, email, phone or ticket #"><select id="fStatus"><option value="">All statuses</option><option value="paid">Paid</option><option value="capture_failed">Payment failed</option><option value="pending_capture">Pending</option><option value="refunded">Refunded</option><option value="released">Released</option><option value="free">Free (mail-in)</option><option value="disqualified">Disqualified</option></select></div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Participant</th><th>Phone</th><th>Amount</th><th>Payment</th><th>Email</th><th>Created (UTC)</th><th></th></tr></thead><tbody id="entryRows"></tbody></table></div>
+      <p class="muted small" id="entryCount"></p>
+    </section>
+
+    <dialog id="freeDlg">
+      <form id="freeForm" class="form" method="dialog" novalidate>
+        <h3 style="font-size:24px;color:var(--gold)">Register a mail-in (free) entry</h3>
+        <p class="help">Enter the details exactly as written on the signed form. The entry gets a random unused number from the same pool as donation entries, with no payment, and a confirmation email.</p>
+        <div class="fgrid">
+          <label>First name<input name="first" required></label><label>Last name<input name="last" required></label>
+          <label>Street address<input name="street" required></label><label>City<input name="city" required></label>
+          <label>State<input name="state" required></label><label>ZIP code<input name="zip" required></label>
+          <label>Country<input name="country" value="United States" required></label><label>Telephone<input name="phone" type="tel" required></label>
+          <label>Email<input name="email" type="email" required></label><label>Date received<input name="received_at" type="date" required></label>
+        </div>
+        <label class="check"><input type="checkbox" name="certified"> The form includes the campaign number and the eligibility certification</label>
+        <label class="check"><input type="checkbox" name="signed"> The form is signed and dated, and agrees to the Official Rules</label>
+        <label>Notes (optional)<input name="notes" placeholder="e.g. envelope postmarked Dec 2"></label>
+        <p class="err" id="freeErr"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" id="freeSubmit" value="default">Register entry</button></div>
+      </form>
+    </dialog>
+
+    <section class="panel" data-panel="payments" hidden>
+      <header class="ph"><h2>Payments</h2></header>
+      <div class="filters"><input type="search" id="tq" placeholder="Search reference, email or ticket #"><select id="tKind"><option value="">All types</option><option>authorize</option><option>capture</option><option>void</option><option>refund</option></select><select id="tStatus"><option value="">All results</option><option>succeeded</option><option>failed</option></select></div>
+      <div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Type</th><th>Result</th><th>Amount</th><th>Ticket</th><th>Email</th><th>Reference</th><th>Message</th></tr></thead><tbody id="txRows"></tbody></table></div>
+    </section>
+
+    <section class="panel" data-panel="emails" hidden>
+      <header class="ph"><h2>Confirmation emails</h2></header>
+      <p class="muted" id="emailMode">Emails are written to this outbox. Set SMTP_HOST (and SMTP_USER, SMTP_PASSWORD, SMTP_FROM) to deliver them.</p>
+      <div class="filters"><input type="search" id="eq" placeholder="Search recipient or ticket #"><select id="eStatus"><option value="">All</option><option>sent</option><option>logged</option><option>failed</option></select></div>
+      <div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>To</th><th>Ticket</th><th>Subject</th><th>Status</th><th></th></tr></thead><tbody id="mailRows"></tbody></table></div>
+    </section>
+
+    <section class="panel" data-panel="drawing" hidden>
+      <header class="ph"><h2>Winner drawing</h2></header>
+      <div class="card" id="drawCard"></div>
+      <div class="card">
+        <h3>How the drawing stays auditable</h3>
+        <ol class="howto">
+          <li><b>Publish a commitment</b> before entries close. The server generates a secret seed and publishes only its SHA-256 hash on the public site.</li>
+          <li><b>Announce a public entropy source</b> in advance, such as a specific state lottery result on the drawing date, so no one (including administrators) can predict the outcome.</li>
+          <li><b>Close entries</b> (pause sales, reach the end date, or sell out), then enter the public value and draw.</li>
+          <li>The seed, entropy, eligible ticket list and algorithm are published at <a href="/api/drawing" target="_blank" rel="noopener">/api/drawing</a> so anyone can recompute the result.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="campaign" hidden>
+      <header class="ph"><h2>Campaign settings</h2><div class="ph-actions"><button class="btn primary" id="saveCampaign">Save changes</button></div></header>
+      <form id="campForm" class="form" autocomplete="off"></form>
+    </section>
+
+    <section class="panel" data-panel="checklist" hidden>
+      <header class="ph"><h2>Launch checklist</h2><div class="ph-actions"><span class="badge sbx" id="ckPay">Payments: test mode</span></div></header>
+      <div class="card"><div class="card-h"><h3 id="ckSummary">Pre-launch checklist</h3></div>
+        <p class="muted small" style="margin-top:0">Items marked “auto” update themselves from the campaign settings and server configuration. Tick the others as they are completed; each change is recorded in the activity log. Real payments stay disabled until the approvals are done and a developer switches Stripe to live keys.</p>
+        <div id="ckList"></div></div>
+      <div class="card"><h3>Start a new campaign</h3>
+        <p class="muted small" style="margin-top:0">After the drawing, reuse this site for the next campaign. The current campaign’s complete database (entries, payments, emails, drawing) is archived on the server, then cleared. Branding, restaurants and rules text are kept for you to edit. Entries stay paused until you set new dates.</p>
+        <div class="row"><label>New campaign number<input id="ncNumber" placeholder="e.g. YM-2027-01"></label><button class="btn danger" id="ncGo">Archive and start new campaign</button></div></div>
+    </section>
+
+    <section class="panel" data-panel="activity" hidden>
+      <header class="ph"><h2>Activity log</h2></header>
+      <div class="filters"><input type="search" id="aq" placeholder="Filter by action, actor or detail"></div>
+      <div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead><tbody id="actRows"></tbody></table></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="modal"><div class="modal-body" id="modalBody"></div><form method="dialog"><button class="btn">Close</button></form></dialog>
+
+<script src="/assets/admin.js"></script>
+</body>
+</html>
