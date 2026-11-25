@@ -422,7 +422,8 @@ class StripeGateway:
 
 
 def make_gateway(env):
-    sk, pk = env.get('STRIPE_SECRET_KEY', '').strip(), env.get('STRIPE_PUBLISHABLE_KEY', '').strip()
+    blank = lambda v: '' if v.strip().lower() in ('', 'none', '-', 'off') else v.strip()  # noqa: E731
+    sk, pk = blank(env.get('STRIPE_SECRET_KEY', '')), blank(env.get('STRIPE_PUBLISHABLE_KEY', ''))
     if sk or pk:
         return StripeGateway(sk, pk)
     return SandboxGateway()
@@ -469,7 +470,9 @@ def render_email(campaign, entry):
 
 def smtp_configured():
     """Real email needs a host, and a password whenever a username is set (Gmail: an app password)."""
-    return bool(os.environ.get('SMTP_HOST')) and (not os.environ.get('SMTP_USER') or bool(os.environ.get('SMTP_PASSWORD')))
+    pw = os.environ.get('SMTP_PASSWORD', '').strip()
+    pw = '' if pw.lower() in ('none', '-', 'off') else pw
+    return bool(os.environ.get('SMTP_HOST')) and (not os.environ.get('SMTP_USER') or bool(pw))
 
 
 def deliver_email(c, entry, campaign, actor='system'):

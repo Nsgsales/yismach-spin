@@ -530,3 +530,11 @@ def test_smtp_needs_password(monkeypatch):
     assert core.smtp_configured() is False
     monkeypatch.setenv('SMTP_PASSWORD', 'app-password')
     assert core.smtp_configured() is True
+
+
+def test_placeholder_secrets_mean_not_configured(monkeypatch):
+    assert core.make_gateway({'STRIPE_SECRET_KEY': 'none', 'STRIPE_PUBLISHABLE_KEY': 'none'}).name == 'simulated'
+    monkeypatch.setenv('SMTP_HOST', 'smtp.gmail.com')
+    monkeypatch.setenv('SMTP_USER', 'x@example.com')
+    monkeypatch.setenv('SMTP_PASSWORD', 'none')
+    assert core.smtp_configured() is False
