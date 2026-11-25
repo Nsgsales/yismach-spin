@@ -325,6 +325,23 @@ function createFallback() {
   };
 }
 
+/* Rolling number under the dreidel: races while it spins, slows as it lands, and stops on the assigned number. */
+const counter = (() => {
+  let timer = null, delay = 45, slowing = false;
+  const el = () => $('spinCounter'), num = () => $('scNum');
+  const roll = () => {
+    num().textContent = 1 + Math.floor(Math.random() * (state.max || 360));
+    if (slowing) delay = Math.min(delay * 1.13, 380);
+    timer = setTimeout(roll, delay);
+  };
+  return {
+    start() { clearTimeout(timer); delay = reduced ? 140 : 45; slowing = false; el().classList.remove('locked'); el().classList.add('on'); if (!reduced) roll(); else num().textContent = '…'; },
+    slow() { slowing = true; },
+    lock(n) { clearTimeout(timer); num().textContent = n; el().classList.add('locked'); },
+    hide() { clearTimeout(timer); el().classList.remove('on', 'locked'); },
+  };
+})();
+
 let dreidel = null;
 const IDLE_HINT = 'Tap the dreidel to play';
 const dreidelReady = createDreidel($('three')).catch((err) => { console.warn('3D unavailable, using fallback', err); return createFallback(); })
@@ -568,7 +585,7 @@ async function runSpin(payload) {
   state.busy = true; $$('[data-open-checkout]').forEach(b => { b.disabled = true; }); updateBar();
   const d3 = dreidel || await dreidelReady;
   $('spin').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
-  setHint('Spinning…'); d3.rev();
+  setHint('Spinning…'); d3.rev(); counter.start();
   let data;
   try {
     const [res] = await Promise.all([
@@ -578,12 +595,15 @@ async function runSpin(payload) {
     data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'We couldn’t complete your spin.');
   } catch (err) {
-    d3.abort(); state.busy = false; setHint(IDLE_HINT);
+    d3.abort(); counter.hide(); state.busy = false; setHint(IDLE_HINT);
     await refreshStatus(); openCheckout(); showStep(2);
     $('error').textContent = err && err.message && err.message !== 'Failed to fetch' ? err.message : 'Connection problem. Please try again; you will not be charged twice.';
     return;
   }
+  counter.slow();
   await d3.land(data.number);
+  counter.lock(data.number);
+  await sleep(reduced ? 200 : 900);
   reveal(data);
   state.requestId = newId(); state.busy = false; refreshStatus();
 }
@@ -610,9 +630,7 @@ function reveal(d) {
   const tl = gsap.timeline();
   tl.fromTo('.reveal-backdrop', { opacity: 0 }, { opacity: 1, duration: 0.5 })
     .fromTo('.reveal-card', { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out' }, 0.1);
-  const scr = { k: 0 };
-  tl.to(scr, { k: 1, duration: 0.9, ease: 'none', onUpdate: () => { $('rNumber').textContent = 1 + Math.floor(Math.random() * state.max); } }, 0.2);
-  tl.call(() => { $('rNumber').textContent = d.number; });
+  tl.call(() => { $('rNumber').textContent = d.number; }, null, 0.25);
   tl.fromTo('.big-number', { scale: 1.25 }, { scale: 1, duration: 0.9, ease: 'elastic.out(1,0.5)' });
   const amt = { v: 0 }, cents = Math.round(d.amount * 100);
   tl.to(amt, { v: cents, duration: 0.9, ease: 'power2.out', onUpdate: () => { $('rAmount').textContent = money(Math.round(amt.v / 100) * 100); }, onComplete: () => { $('rAmount').textContent = d.amount_display; } }, '<0.1');
@@ -620,7 +638,7 @@ function reveal(d) {
 }
 function closeReveal(then) {
   const layer = $('reveal');
-  const done = () => { layer.hidden = true; document.body.style.overflow = ''; dreidel && dreidel.idle(); setHint(state.open ? IDLE_HINT : state.closedMsg); updateBar(); then && then(); };
+  const done = () => { layer.hidden = true; document.body.style.overflow = ''; counter.hide(); dreidel && dreidel.idle(); setHint(state.open ? IDLE_HINT : state.closedMsg); updateBar(); then && then(); };
   if (gsap && !reduced) gsap.to('.reveal-card', { opacity: 0, y: -20, duration: 0.3, onComplete: done }); else done();
 }
 $('done').addEventListener('click', () => closeReveal());
