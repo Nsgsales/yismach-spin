@@ -610,7 +610,7 @@ def render_email(campaign, entry, link=None, group=None):
     group = group or [entry]
     amount = 'Free entry (no donation)' if entry['status'] == 'free' else money(sum(e['amount_cents'] for e in group))
     pkg = entry['package'] if 'package' in entry.keys() else 'spin'
-    if pkg in PACKAGES and entry['status'] != 'free':
+    if (pkg in PACKAGES or pkg in OFFLINE_PACKAGES) and entry['status'] != 'free':
         amount += f" ({PACKAGE_LABELS[pkg]})"
     number = ' & #'.join(str(e['number']) for e in group)
     vals = _Safe(name=entry['name'], number=number, amount=amount,
@@ -809,7 +809,8 @@ def pick_winners(seed, public_entropy, eligible, count):
 EMAIL_RE = re.compile(r'[^\s@]+@[^\s@]+\.[^\s@]+')
 # Fixed-price options next to the spin. (entries, total price in cents); the spin itself is 'spin'.
 PACKAGES = {'chai': (1, 18000)}
-PACKAGE_LABELS = {'spin': 'Spin', 'chai': 'Fixed price $180'}
+PACKAGE_LABELS = {'spin': 'Spin', 'chai': 'Fixed price $180', 'check': 'Check', 'cash': 'Cash'}
+OFFLINE_PACKAGES = ('check', 'cash')  # paid in person; recorded by staff, never charged or refunded through Stripe
 
 
 def package_of(value):

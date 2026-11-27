@@ -463,6 +463,8 @@ def create_app(db_path=None):
             for r in rows:
                 r['amount'] = r['amount_cents'] / 100
                 r['package_label'] = core.PACKAGE_LABELS.get(r['package'], 'Spin') if r['method'] != 'free' else 'Free'
+                if r['package'] in core.OFFLINE_PACKAGES and r['capture_id']:
+                    r['package_label'] = r['capture_id']
                 last = c.execute('SELECT status FROM emails WHERE entry_id=? ORDER BY id DESC LIMIT 1', (r['id'],)).fetchone()
                 r['email_status'] = last['status'] if last else None
             paid = sum(r['amount_cents'] for r in rows if r['status'] == 'paid')
@@ -509,6 +511,8 @@ def create_app(db_path=None):
             e = load_entry(c, entry_id)
             if not e or e['status'] not in core.ELIGIBLE_STATUSES:
                 return jsonify(error='Only paid or free entries can receive a confirmation.'), 409
+            if not e['email']:
+                return jsonify(error='This entry has no email address.'), 409
             status = core.deliver_email(c, e, core.get_campaign(c), actor())
         return jsonify(ok=True, email_status=status)
 
@@ -572,13 +576,96 @@ def create_app(db_path=None):
             if not e or e['status'] != 'paid':
                 c.rollback()
                 return jsonify(error='Only paid entries can be refunded.'), 409
-            ok, ref, msg = gateway.refund(e['capture_id'], e['amount_cents'], key=f"entry-{entry_id}")
+            if e['package'] in core.OFFLINE_PACKAGES:
+                ok, ref, msg = True, None, f"Ticket #{e['number']} voided. Return the {core.money(e['amount_cents'])} ({e['capture_id']}) to the donor by hand."
+            else:
+                ok, ref, msg = gateway.refund(e['capture_id'], e['amount_cents'], key=f"entry-{entry_id}")
             core.record_txn(c, 'refund', e['amount_cents'], ok, ref, msg + (f' Reason: {reason}' if reason else ''), entry_id=entry_id)
             if ok:  # refunded tickets are void for the drawing; the number is not re-issued
                 c.execute("UPDATE entries SET status='refunded', refund_id=?, updated=CURRENT_TIMESTAMP WHERE id=?", (ref, entry_id))
             core.log(c, actor(), 'refund_' + ('issued' if ok else 'failed'), entry_id=entry_id, number=e['number'], reason=reason)
             c.commit()
             return jsonify(ok=ok, message=msg)
+        finally:
+            c.close()
+
+    @app.post('/api/admin/offline-entries')
+    def offline_entry_add():
+        """Record a donation paid by check or cash. Each entry gets a random unused number, like every other entry."""
+        d = request.get_json(silent=True) or {}
+        f = {k: str(d.get(k, '') or '').strip() for k in ('name', 'email', 'kind', 'check_number', 'notes', 'request_id')}
+        phone = core.clean_phone(d.get('phone')) if str(d.get('phone') or '').strip() else ''
+        if not f['name']:
+            return jsonify(error='Enter the donor\'s name.'), 400
+        if f['email'] and not core.EMAIL_RE.fullmatch(f['email']):
+            return jsonify(error='That email address does not look right.'), 400
+        if phone is None:
+            return jsonify(error='That phone number does not look right.'), 400
+        if f['kind'] not in core.OFFLINE_PACKAGES:
+            return jsonify(error='Choose check or cash.'), 400
+        if any(len(v) > 300 for v in f.values()):
+            return jsonify(error='A field is too long.'), 400
+        try:
+            total = round(float(str(d.get('amount', '')).replace('$', '').replace(',', '')) * 100)
+            count = int(d.get('entries', 0))
+        except ValueError:
+            return jsonify(error='Enter the amount and the number of entries.'), 400
+        if total < 100 or total > 10_000_00:
+            return jsonify(error='Enter an amount between $1 and $10,000.'), 400
+        if count < 1 or count > 20 or count * 100 > total:
+            return jsonify(error='Enter between 1 and 20 entries (at least $1 per entry).'), 400
+        if not core.RID_RE.fullmatch(f['request_id']):
+            return jsonify(error='Missing request id.'), 400
+        c = connect()
+        try:
+            c.execute('BEGIN IMMEDIATE')
+            prior = c.execute('SELECT * FROM entries WHERE request_id=?', (f['request_id'],)).fetchone()
+            if prior:
+                c.rollback()
+                group = core.purchase_group(c, prior)
+                return jsonify(ok=True, numbers=[e['number'] for e in group], duplicate_request=True)
+            camp = core.get_campaign(c)
+            lim = int(camp.get('entries_per_person') or 0)
+            if f['email'] and lim > 0 and core.person_entry_count(c, f['email']) + count > lim:
+                c.rollback()
+                return jsonify(error=f'This would go over the limit of {lim} entries per person.'), 409
+            m = core.get_max_tickets(c)
+            taken = core.active_numbers(c)
+            available = [n for n in range(1, m + 1) if n not in taken]
+            if len(available) < count:
+                c.rollback()
+                return jsonify(error=f'Only {len(available)} numbers are left.'), 409
+            numbers = []
+            for _ in range(count):
+                n = secrets.choice(available)
+                available.remove(n)
+                numbers.append(n)
+            base, extra = divmod(total, count)
+            group_id = f"{f['kind']}-{f['request_id']}"
+            ref = f"{core.PACKAGE_LABELS[f['kind']]}{' #' + f['check_number'] if f['check_number'] else ''}"
+            ids = []
+            for i, n in enumerate(numbers):
+                amt = base + (extra if i == 0 else 0)
+                rid = f['request_id'] if i == 0 else f"{f['request_id']}-{i + 1}"
+                cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,authorization_id,capture_id,
+                                     method,consent_at,consent_text,rules_version,campaign_number,notes,payment_mode,package)
+                                   VALUES(?,?,?,?,?,?,'paid',?,?,'donation',?,?,?,?,?,?,?)''',
+                                (n, f['name'], f['email'], phone, rid, amt, group_id, ref, core.now_iso(),
+                                 f'{ref} received in person and recorded by staff.', camp.get('rules_version'),
+                                 camp.get('campaign_number'), f['notes'], core.PAYMENT_MODE, f['kind']))
+                ids.append(cur.lastrowid)
+                core.record_txn(c, 'offline', amt, True, ref, f'{ref} recorded by {actor()}', entry_id=cur.lastrowid, request_id=rid)
+                core.log(c, actor(), 'offline_entry_recorded', entry_id=cur.lastrowid, number=n, amount_cents=amt, kind=f['kind'],
+                         check_number=f['check_number'])
+            c.commit()
+            entry = load_entry(c, ids[0])
+            email_status = core.deliver_email(c, entry, camp, actor()) if f['email'] else None
+            c.commit()
+            for i in ids:
+                notice = core.staff_notice(c, load_entry(c, i), camp)
+                if notice:
+                    core.send_staff_notice(connect, notice, i)
+            return jsonify(ok=True, numbers=numbers, email_status=email_status)
         finally:
             c.close()
 

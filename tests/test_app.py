@@ -738,3 +738,51 @@ def test_unknown_option_is_a_normal_spin(client):
 def test_rules_mention_fixed_price_option(client):
     rules = json.dumps(client.get('/api/legal').json['docs']['rules'])
     assert '$180 for one entry' in rules and 'two entries' not in rules and '$300 for' not in rules
+
+
+# ───────────── check / cash payments recorded by staff ─────────────
+
+def test_check_payment_gets_random_numbers_and_email(stripe_app, monkeypatch):
+    monkeypatch.setattr(core, 'SITE_URL', 'https://spin.example.org')
+    a, fake = stripe_app
+    adm = a.test_client()
+    adm.post('/api/admin/login', json={'username': 'admin', 'password': 'local-demo-only'})
+    rid = str(uuid.uuid4())
+    body = dict(name='Check Donor', email='chk@example.com', phone='', kind='check', check_number='1234', amount='300', entries=2, request_id=rid)
+    r = adm.post('/api/admin/offline-entries', json=body, headers=ADMIN).json
+    assert r['ok'] and len(set(r['numbers'])) == 2
+    assert adm.post('/api/admin/offline-entries', json=body, headers=ADMIN).json['duplicate_request']  # double-click safe
+    rows = [e for e in adm.get('/api/admin', headers=ADMIN).json['entries'] if e['email'] == 'chk@example.com']
+    assert len(rows) == 2 and sum(e['amount_cents'] for e in rows) == 30000 and {e['status'] for e in rows} == {'paid'}
+    assert {e['package_label'] for e in rows} == {'Check #1234'}
+    mails = adm.get('/api/admin/emails').json['emails']
+    assert len(mails) == 1
+    text = adm.get(f"/api/admin/emails/{mails[0]['id']}").json['body_text']
+    assert '$300 (Check)' in text and '/?ref=' in text
+    # refunding a check entry never touches Stripe
+    calls = len(fake.calls)
+    r = adm.post(f"/api/admin/entries/{rows[0]['id']}/refund", headers=ADMIN).json
+    assert r['ok'] and 'by hand' in r['message'] and len(fake.calls) == calls
+
+
+def test_cash_payment_without_email(admin):
+    r = admin.post('/api/admin/offline-entries', headers=ADMIN, json=dict(
+        name='Cash Donor', kind='cash', amount='180', entries=1, request_id=str(uuid.uuid4()))).json
+    assert r['ok'] and len(r['numbers']) == 1 and r['email_status'] is None
+    e = [x for x in admin.get('/api/admin', headers=ADMIN).json['entries'] if x['name'] == 'Cash Donor'][0]
+    assert admin.post(f"/api/admin/entries/{e['id']}/resend-email", headers=ADMIN).status_code == 409
+
+
+def test_offline_payment_validation(admin):
+    post = lambda **kw: admin.post('/api/admin/offline-entries', headers=ADMIN, json=dict(
+        dict(name='X', kind='check', amount='300', entries=1, request_id=str(uuid.uuid4())), **kw))
+    assert post(name='').status_code == 400
+    assert post(kind='stripe').status_code == 400
+    assert post(amount='abc').status_code == 400
+    assert post(entries=0).status_code == 400
+    assert post(amount='2', entries=3).status_code == 400
+    assert post(email='bad').status_code == 400
+
+
+def test_offline_entries_need_admin(client):
+    assert client.post('/api/admin/offline-entries', json={}).status_code in (401, 403)

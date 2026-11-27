@@ -55,11 +55,30 @@
     </section>
 
     <section class="panel" data-panel="entries" hidden>
-      <header class="ph"><h2>Entries</h2><div class="ph-actions"><button class="btn primary" id="addFree">+ Register mail-in entry</button></div></header>
+      <header class="ph"><h2>Entries</h2><div class="ph-actions"><button class="btn primary" id="addOffline">+ Add check / cash payment</button><button class="btn" id="addFree">+ Register mail-in entry</button></div></header>
       <div class="filters"><input type="search" id="q" placeholder="Search name, email, phone or ticket #"><select id="fStatus"><option value="">All statuses</option><option value="paid">Paid</option><option value="capture_failed">Payment failed</option><option value="pending_capture">Pending</option><option value="refunded">Refunded</option><option value="released">Released</option><option value="free">Free (mail-in)</option><option value="disqualified">Disqualified</option></select></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>Participant</th><th>Phone</th><th>Amount</th><th>Payment</th><th>Email</th><th>Created (UTC)</th><th></th></tr></thead><tbody id="entryRows"></tbody></table></div>
       <p class="muted small" id="entryCount"></p>
     </section>
+
+    <dialog id="offDlg">
+      <form id="offForm" class="form" method="dialog" novalidate>
+        <h3 style="font-size:24px;color:var(--gold)">Add a check or cash payment</h3>
+        <p class="help">Each entry gets a random unused number, the same as online entries. If you add an email, the donor gets the normal confirmation with their number and share link.</p>
+        <div class="fgrid">
+          <label>Donor name<input name="name" required></label><label>Email (recommended)<input name="email" type="email"></label>
+          <label>Phone (optional)<input name="phone" type="tel"></label>
+          <label>Paid by<select name="kind"><option value="check">Check</option><option value="cash">Cash</option></select></label>
+          <label>Check number<input name="check_number" placeholder="e.g. 1234"></label>
+          <label>Total amount ($)<input name="amount" inputmode="decimal" required placeholder="300"></label>
+          <label>Number of entries<input name="entries" type="number" min="1" max="20" value="1" required></label>
+        </div>
+        <label>Notes (optional)<input name="notes" placeholder="e.g. handed to the gabbai on Shabbos"></label>
+        <p class="help" id="offSummary"></p>
+        <p class="err" id="offErr"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" id="offSubmit" value="default">Add entries</button></div>
+      </form>
+    </dialog>
 
     <dialog id="freeDlg">
       <form id="freeForm" class="form" method="dialog" novalidate>

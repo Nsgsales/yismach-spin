@@ -111,6 +111,23 @@
     catch (err) { toast(err.message, true); btn.disabled = false; }
   });
 
+  /* check / cash payments */
+  const offSum = () => {
+    const fd = new FormData($('offForm')), amt = parseFloat(String(fd.get('amount') || '').replace(/[$,]/g, '')), n = parseInt(fd.get('entries'), 10);
+    $('offSummary').textContent = amt > 0 && n > 0 ? `${n} entr${n === 1 ? 'y' : 'ies'} with random numbers, ${money(amt)} total.` : '';
+  };
+  $('offForm').addEventListener('input', offSum);
+  $('addOffline').addEventListener('click', () => { $('offForm').reset(); $('offErr').textContent = ''; offSum(); S.offRid = crypto.randomUUID(); $('offDlg').showModal(); });
+  $('offSubmit').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData($('offForm')).entries()); body.request_id = S.offRid;
+    $('offErr').textContent = ''; $('offSubmit').disabled = true;
+    try {
+      const r = await api('/api/admin/offline-entries', { method: 'POST', body });
+      $('offDlg').close(); toast(`Added: #${r.numbers.join(', #')}${r.email_status ? ` · email ${r.email_status}` : ' · no email sent'}`); S.data = null; await loadOverview();
+    } catch (err) { $('offErr').textContent = err.message; } finally { $('offSubmit').disabled = false; }
+  });
+
   /* mail-in (free) entries */
   $('addFree').addEventListener('click', () => { $('freeForm').reset(); $('freeErr').textContent = ''; S.freeRid = crypto.randomUUID(); S.allowDup = false; $('freeDlg').showModal(); });
   $('freeSubmit').addEventListener('click', async (e) => {
