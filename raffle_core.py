@@ -809,7 +809,7 @@ def pick_winners(seed, public_entropy, eligible, count):
 EMAIL_RE = re.compile(r'[^\s@]+@[^\s@]+\.[^\s@]+')
 # Fixed-price options next to the spin. (entries, total price in cents); the spin itself is 'spin'.
 PACKAGES = {'chai': (1, 18000)}
-PACKAGE_LABELS = {'spin': 'Spin', 'chai': 'Chai ticket $180'}
+PACKAGE_LABELS = {'spin': 'Spin', 'chai': 'Fixed price $180'}
 
 
 def package_of(value):

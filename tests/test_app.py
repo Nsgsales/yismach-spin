@@ -712,9 +712,9 @@ def test_stripe_chai_charges_exact_price(stripe_app):
     assert d['payment_status'] == 'paid' and d['amount'] == 180 and d['amount_display'] == '$180' and len(d['numbers']) == 1
     assert fake.intents[pid]['amount_received'] == 18000
     e = adm.get('/api/admin', headers=ADMIN).json['entries'][0]
-    assert e['amount_cents'] == 18000 and e['package_label'] == 'Chai ticket $180'
+    assert e['amount_cents'] == 18000 and e['package_label'] == 'Fixed price $180'
     mail = adm.get('/api/admin/emails').json['emails'][0]
-    assert '$180 (Chai ticket $180)' in adm.get(f"/api/admin/emails/{mail['id']}").json['body_text']
+    assert '$180 (Fixed price $180)' in adm.get(f"/api/admin/emails/{mail['id']}").json['body_text']
     assert adm.post(f"/api/admin/entries/{e['id']}/refund", headers=ADMIN).json['ok']
     assert fake.calls[-1][2] == {'charge': 'ch_' + pid, 'amount': 18000} and fake.calls[-1][3] == f"refund-entry-{e['id']}"
     assert spin(c, email='p@example.com', rid=rid, payment_intent=pid, package='chai').json['number'] == d['number']  # idempotent
