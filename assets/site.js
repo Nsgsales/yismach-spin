@@ -9,7 +9,7 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const LETTERS = ['נ', 'ג', 'ה', 'ש'];
 const state = { max: 360, unit: 100, remaining: null, open: true, closedMsg: '', busy: false, requestId: newId(), campaign: null, processor: 'simulated' };
 
-const PKGS = { chai: { n: 1, total: 180, label: 'Chai ticket · $180' }, pair: { n: 2, total: 300, label: '2 entries · $300' } };
+const PKGS = { chai: { n: 1, total: 180, label: 'Chai ticket · $180' } };
 const pkgNow = () => { const r = document.querySelector('input[name="pkg"]:checked'); return r && PKGS[r.value] ? r.value : 'spin'; };
 const spinTexts = {};
 function applyPkg() {

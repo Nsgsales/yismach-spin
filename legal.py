@@ -123,9 +123,9 @@ def rules_sections(camp, x):
             f'authorization, and spin. The system assigns a random, unused entry number from 1 to {x["n"]}. Your donation amount equals '
             f'your entry number multiplied by {x["unit"]}, so it is between {x["min"]} and {x["max"]}. The range is shown before you authorize '
             f'payment, and the exact amount is shown as soon as your number is assigned. The amount does not affect your chance of winning.',
-            'Fixed-price options. Instead of a random amount, you may choose a flat donation of $180 for one entry, or $300 for two '
-            'entries. Each entry still receives its own random, unused entry number from the same pool, and is treated exactly like '
-            'every other entry in the drawing. The option you choose does not affect the odds of any entry.',
+            'Fixed-price option. Instead of a random amount, you may choose a flat donation of $180 for one entry. The entry still '
+            'receives a random, unused entry number from the same pool and is treated exactly like every other entry in the drawing. '
+            'The option you choose does not affect the odds of any entry.',
             ('(b) Free entry. ' + ' '.join(free_entry_steps(x))) if free else '(b) [[Free entry method to be confirmed by counsel.]]',
             limit,
             'Duplicate entries beyond the limit, and incomplete, illegible, late, automated, mechanically reproduced, bulk or fraudulent '
