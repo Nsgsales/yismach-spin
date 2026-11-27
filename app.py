@@ -112,12 +112,23 @@ def create_app(db_path=None):
         with connect() as c:
             return jsonify(public_status(c))
 
+    def package_problem(c, camp, info, email, pkg):
+        """Why this person can't buy this option right now, or None."""
+        need = core.PACKAGES[pkg][0] if pkg in core.PACKAGES else 1
+        lim = int(camp.get('entries_per_person') or 0)
+        if lim and core.person_entry_count(c, email) + need > lim:
+            return 'You have reached the entry limit for this campaign.'
+        if info['sales_open'] and info['remaining'] < need:
+            return f"Only {info['remaining']} {'entry is' if info['remaining'] == 1 else 'entries are'} left. Please choose a single entry."
+        return None
+
     @app.post('/api/payment-intent')
     def payment_intent():
         if not is_stripe:
             return jsonify(error='Card payments are not enabled.'), 404
         d = request.get_json(silent=True) or {}
         email, rid = str(d.get('email', '')).strip(), str(d.get('request_id', ''))
+        pkg = core.package_of(d.get('package'))
         if not (core.EMAIL_RE.fullmatch(email) and core.RID_RE.fullmatch(rid)):
             return jsonify(error='Please check your details.'), 400
         with connect() as c:
@@ -125,13 +136,19 @@ def create_app(db_path=None):
             camp = core.get_campaign(c)
             if c.execute('SELECT 1 FROM entries WHERE request_id=?', (rid,)).fetchone():
                 return jsonify(error='This entry was already completed.'), 409
-            if core.limit_reached(c, camp, email):
-                return jsonify(error='You have reached the entry limit for this campaign.'), 409
+            err = package_problem(c, camp, info, email, pkg)
+            if err:
+                return jsonify(error=err), 409
         if not info['sales_open']:
             return jsonify(error=info['sales_message']), 409
-        max_auth = info['unit_price_cents'] * info['max_tickets']
+        if pkg == 'spin':
+            max_auth = info['unit_price_cents'] * info['max_tickets']
+            desc = f"{camp['title']} entry (hold up to {core.money(max_auth)})"
+        else:
+            max_auth = core.PACKAGES[pkg][1]
+            desc = f"{camp['title']}: {core.PACKAGE_LABELS[pkg]}"
         try:
-            pi_id, secret = gateway.create_intent(max_auth, rid, email, f"{camp['title']} entry (hold up to {core.money(max_auth)})")
+            pi_id, secret = gateway.create_intent(max_auth, rid, email, desc)
         except core.StripeError as e:
             return jsonify(error=f'Payment setup failed: {e}'), 502
         return jsonify(payment_intent=pi_id, client_secret=secret, publishable_key=gateway.publishable_key, amount=max_auth)
@@ -234,6 +251,8 @@ def create_app(db_path=None):
             return jsonify(error='Please confirm your eligibility and agree to the Official Rules.'), 400
         marketing = 1 if d.get('marketing') is True else 0
         ref = str(d.get('ref') or '').strip().lower()[:40]
+        pkg = core.package_of(d.get('package'))
+        count, fixed_total = core.PACKAGES.get(pkg, (1, None))
 
         def my_link(camp):
             if not camp.get('referral_enabled'):
@@ -249,9 +268,12 @@ def create_app(db_path=None):
                 return None
 
         def result(entry, camp):
-            return jsonify(my_link=my_link(camp), number=entry['number'], amount=entry['amount_cents'] / 100,
-                           amount_display=core.money(entry['amount_cents']),
-                           confirmation=core.confirmation_code(entry['number']), authorization_id=entry['authorization_id'],
+            with connect() as c2:
+                group = core.purchase_group(c2, entry)
+            total = sum(e['amount_cents'] for e in group)
+            return jsonify(my_link=my_link(camp), number=entry['number'], numbers=[e['number'] for e in group],
+                           package=entry['package'], amount=total / 100, amount_display=core.money(total),
+                           confirmation=', '.join(core.confirmation_code(e['number']) for e in group), authorization_id=entry['authorization_id'],
                            payment_status=entry['status'], payment_mode=core.PAYMENT_MODE, simulated=not is_stripe, processor=gateway.name,
                            email_status=entry_email_status(entry['id']), title=camp['title'])
 
@@ -269,8 +291,9 @@ def create_app(db_path=None):
                     return jsonify(error='Request conflict.'), 409
                 return result(prior, camp)
             info = core.summary(c)
-            if info['sales_open'] and core.limit_reached(c, camp, email):
-                info = dict(info, sales_open=False, sales_message='You have reached the entry limit for this campaign.')
+            problem = package_problem(c, camp, info, email, pkg) if info['sales_open'] else None
+            if problem:
+                info = dict(info, sales_open=False, sales_message=problem)
             if not info['sales_open']:
                 held, hold_id, _ = gateway.authorize(0, email, payment_intent_id=d.get('payment_intent'), request_id=rid) \
                     if d.get('payment_intent') and is_stripe else (False, None, '')
@@ -280,7 +303,7 @@ def create_app(db_path=None):
                     c.commit()
                 return jsonify(error=info['sales_message']), 409
             m, unit = info['max_tickets'], info['unit_price_cents']
-            max_auth = unit * m
+            max_auth = fixed_total if fixed_total else unit * m
 
             # 1. Authorize the maximum possible amount before a number is assigned.
             ok, auth_id, msg = gateway.authorize(max_auth, email, payment_intent_id=d.get('payment_intent'), request_id=rid)
@@ -302,33 +325,47 @@ def create_app(db_path=None):
             m = core.get_max_tickets(c)
             taken = core.active_numbers(c)
             available = [n for n in range(1, m + 1) if n not in taken]
-            if not available:
+            if len(available) < count:
                 c.rollback()
                 ok_v, ref, vmsg = gateway.void(auth_id)
                 core.record_txn(c, 'void', max_auth, ok_v, ref, vmsg + ' (sold out)', request_id=rid)
                 c.commit()
                 return jsonify(error='All entries have been claimed. Your authorization was released.'), 409
-            n = secrets.choice(available)
-            amount = n * unit
+            numbers = []
+            for _ in range(count):
+                numbers.append(secrets.choice([x for x in available if x not in numbers]))
+            n = numbers[0]
+            if fixed_total:  # fixed price split evenly across the entries (2 for $300 = $150 each)
+                amounts = [fixed_total // count] * count
+                amounts[0] += fixed_total - sum(amounts)
+                consent = core.package_auth_text(camp, pkg)
+            else:
+                amounts = [n * unit]
+                consent = core.auth_text(camp, info)
+            amount = sum(amounts)
             ref_amb = core.ambassador_by_code(c, ref) if ref and camp.get('referral_enabled') else None
             if ref_amb and ref_amb['email'].lower() == email.lower():
                 ref_amb = None  # your own link doesn't count
-            cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,authorization_id,
-                                 method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in,ref_code,payment_mode)
-                               VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?,?,?)''',
-                            (n, name, email, phone, rid, amount, auth_id, core.now_iso(),
-                             core.auth_text(camp, info) + ' | Eligibility and Official Rules accepted.',
-                             camp.get('rules_version'), camp.get('campaign_number'), marketing, ref_amb['code'] if ref_amb else None, core.PAYMENT_MODE))
-            entry_id = cur.lastrowid
-            core.log(c, 'public', 'number_assigned', entry_id=entry_id, number=n, amount_cents=amount,
-                     rules_version=camp.get('rules_version'), marketing_opt_in=marketing)
+            entry_ids = []
+            for i, (num, amt) in enumerate(zip(numbers, amounts)):
+                cur = c.execute('''INSERT INTO entries(number,name,email,phone,request_id,amount_cents,status,authorization_id,
+                                     method,consent_at,consent_text,rules_version,campaign_number,marketing_opt_in,ref_code,payment_mode,package)
+                                   VALUES(?,?,?,?,?,?,'pending_capture',?,'donation',?,?,?,?,?,?,?,?)''',
+                                (num, name, email, phone, rid if i == 0 else f'{rid}-{i + 1}', amt, auth_id, core.now_iso(),
+                                 consent + ' | Eligibility and Official Rules accepted.',
+                                 camp.get('rules_version'), camp.get('campaign_number'), marketing, ref_amb['code'] if ref_amb else None,
+                                 core.PAYMENT_MODE, pkg))
+                entry_ids.append(cur.lastrowid)
+                core.log(c, 'public', 'number_assigned', entry_id=cur.lastrowid, number=num, amount_cents=amt, package=pkg,
+                         rules_version=camp.get('rules_version'), marketing_opt_in=marketing)
+            entry_id = entry_ids[0]
             c.commit()
 
             # 3. Capture exactly the assigned amount.
             ok_c, cap_id, cmsg = gateway.capture(auth_id, amount, email)
             core.record_txn(c, 'capture', amount, ok_c, cap_id, cmsg, entry_id=entry_id, request_id=rid)
-            c.execute("UPDATE entries SET status=?, capture_id=?, updated=CURRENT_TIMESTAMP WHERE id=?",
-                      ('paid' if ok_c else 'capture_failed', cap_id, entry_id))
+            c.executemany("UPDATE entries SET status=?, capture_id=?, updated=CURRENT_TIMESTAMP WHERE id=?",
+                          [('paid' if ok_c else 'capture_failed', cap_id, i) for i in entry_ids])
             core.log(c, 'public', 'capture_' + ('succeeded' if ok_c else 'failed'), entry_id=entry_id, amount_cents=amount)
             c.commit()
             entry = c.execute('SELECT * FROM entries WHERE id=?', (entry_id,)).fetchone()
@@ -344,9 +381,10 @@ def create_app(db_path=None):
             if ok_c:
                 core.deliver_email(c, entry, camp)
                 c.commit()
-                notice = core.staff_notice(c, entry, camp)
-                if notice:
-                    core.send_staff_notice(connect, notice, entry['id'])
+                for eid in entry_ids:
+                    notice = core.staff_notice(c, c.execute('SELECT * FROM entries WHERE id=?', (eid,)).fetchone(), camp)
+                    if notice:
+                        core.send_staff_notice(connect, notice, eid)
             return result(entry, camp)
         finally:
             c.close()
@@ -421,9 +459,10 @@ def create_app(db_path=None):
         with connect() as c:
             rows = [dict(r) for r in c.execute('''SELECT id,number,name,email,phone,amount_cents,status,authorization_id,capture_id,
                      refund_id,created,updated,method,street,city,state,zip,country,consent_at,consent_text,rules_version,
-                     campaign_number,marketing_opt_in,received_at,notes FROM entries ORDER BY id DESC''')]
+                     campaign_number,marketing_opt_in,received_at,notes,package FROM entries ORDER BY id DESC''')]
             for r in rows:
                 r['amount'] = r['amount_cents'] / 100
+                r['package_label'] = core.PACKAGE_LABELS.get(r['package'], 'Spin') if r['method'] != 'free' else 'Free'
                 last = c.execute('SELECT status FROM emails WHERE entry_id=? ORDER BY id DESC LIMIT 1', (r['id'],)).fetchone()
                 r['email_status'] = last['status'] if last else None
             paid = sum(r['amount_cents'] for r in rows if r['status'] == 'paid')
@@ -482,11 +521,16 @@ def create_app(db_path=None):
             if not e or e['status'] not in ('capture_failed', 'pending_capture'):
                 c.rollback()
                 return jsonify(error='This entry has no failed payment to retry.'), 409
-            attempts = c.execute("SELECT COUNT(*) FROM transactions WHERE entry_id=? AND kind='capture'", (entry_id,)).fetchone()[0]
-            ok, ref, msg = gateway.capture(e['authorization_id'], e['amount_cents'], e['email'], attempt=attempts + 1)
-            core.record_txn(c, 'capture', e['amount_cents'], ok, ref, msg + ' (admin retry)', entry_id=entry_id)
+            group = [g for g in core.purchase_group(c, e) if g['status'] in ('capture_failed', 'pending_capture')]
+            total = sum(g['amount_cents'] for g in group)  # a '2 for $300' purchase is one charge
+            ids = [g['id'] for g in core.purchase_group(c, e)]  # attempts on any entry of the purchase share the Stripe key
+            attempts = c.execute(f"SELECT COUNT(*) FROM transactions WHERE kind='capture' AND entry_id IN ({','.join('?' * len(ids))})",
+                                 ids).fetchone()[0]
+            ok, ref, msg = gateway.capture(e['authorization_id'], total, e['email'], attempt=attempts + 1)
+            core.record_txn(c, 'capture', total, ok, ref, msg + ' (admin retry)', entry_id=entry_id)
             if ok:
-                c.execute("UPDATE entries SET status='paid', capture_id=?, updated=CURRENT_TIMESTAMP WHERE id=?", (ref, entry_id))
+                c.executemany("UPDATE entries SET status='paid', capture_id=?, updated=CURRENT_TIMESTAMP WHERE id=?",
+                              [(ref, g['id']) for g in group])
             core.log(c, actor(), 'capture_retry_' + ('succeeded' if ok else 'failed'), entry_id=entry_id)
             c.commit()
             if ok:
@@ -506,10 +550,12 @@ def create_app(db_path=None):
             if not e or e['status'] not in ('capture_failed', 'pending_capture'):
                 c.rollback()
                 return jsonify(error='Only entries with a failed payment can be released.'), 409
-            ok, ref, msg = gateway.void(e['authorization_id'])
-            core.record_txn(c, 'void', e['amount_cents'], ok, ref, msg, entry_id=entry_id)
-            c.execute("UPDATE entries SET status='released', updated=CURRENT_TIMESTAMP WHERE id=?", (entry_id,))
-            core.log(c, actor(), 'entry_released', entry_id=entry_id, number=e['number'])
+            group = [g for g in core.purchase_group(c, e) if g['status'] in ('capture_failed', 'pending_capture')]
+            ok, ref, msg = gateway.void(e['authorization_id'])  # releases the whole card hold
+            core.record_txn(c, 'void', sum(g['amount_cents'] for g in group), ok, ref, msg, entry_id=entry_id)
+            for g in group:
+                c.execute("UPDATE entries SET status='released', updated=CURRENT_TIMESTAMP WHERE id=?", (g['id'],))
+                core.log(c, actor(), 'entry_released', entry_id=g['id'], number=g['number'])
             c.commit()
             return jsonify(ok=True)
         finally:
@@ -526,7 +572,7 @@ def create_app(db_path=None):
             if not e or e['status'] != 'paid':
                 c.rollback()
                 return jsonify(error='Only paid entries can be refunded.'), 409
-            ok, ref, msg = gateway.refund(e['capture_id'], e['amount_cents'])
+            ok, ref, msg = gateway.refund(e['capture_id'], e['amount_cents'], key=f"entry-{entry_id}")
             core.record_txn(c, 'refund', e['amount_cents'], ok, ref, msg + (f' Reason: {reason}' if reason else ''), entry_id=entry_id)
             if ok:  # refunded tickets are void for the drawing; the number is not re-issued
                 c.execute("UPDATE entries SET status='refunded', refund_id=?, updated=CURRENT_TIMESTAMP WHERE id=?", (ref, entry_id))
@@ -1005,7 +1051,7 @@ def create_app(db_path=None):
     def export():
         s = io.StringIO()
         w = csv.writer(s)
-        w.writerow(['Ticket', 'Amount', 'Status', 'Method', 'Payment mode', 'Authorization ID', 'Capture ID', 'Refund ID',
+        w.writerow(['Ticket', 'Amount', 'Status', 'Method', 'Option', 'Payment mode', 'Authorization ID', 'Capture ID', 'Refund ID',
                     'Name', 'Email', 'Phone', 'Street', 'City', 'State', 'ZIP', 'Country', 'Received (mail-in)',
                     'Consent at (UTC)', 'Rules version', 'Campaign number', 'Marketing opt-in', 'UTC created'])
 
@@ -1015,7 +1061,7 @@ def create_app(db_path=None):
 
         with connect() as c:
             for r in c.execute('SELECT * FROM entries ORDER BY number, id'):
-                w.writerow([r['number'], f"{r['amount_cents'] / 100:.2f}", r['status'], r['method'], r['payment_mode'], r['authorization_id'],
+                w.writerow([r['number'], f"{r['amount_cents'] / 100:.2f}", r['status'], r['method'], core.PACKAGE_LABELS.get(r['package'], 'Spin'), r['payment_mode'], r['authorization_id'],
                             r['capture_id'], r['refund_id'], safe(r['name']), safe(r['email']), safe(r['phone']),
                             safe(r['street']), safe(r['city']), safe(r['state']), safe(r['zip']), safe(r['country']),
                             r['received_at'], r['consent_at'], r['rules_version'], r['campaign_number'],

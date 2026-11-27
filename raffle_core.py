@@ -249,6 +249,8 @@ def init_db(path):
         c.execute('CREATE INDEX IF NOT EXISTS entries_email ON entries(email)')
         if 'ref_code' not in {r[1] for r in c.execute('PRAGMA table_info(entries)')}:
             c.execute('ALTER TABLE entries ADD COLUMN ref_code TEXT')
+        if 'package' not in {r[1] for r in c.execute('PRAGMA table_info(entries)')}:
+            c.execute("ALTER TABLE entries ADD COLUMN package TEXT NOT NULL DEFAULT 'spin'")
         c.execute('CREATE INDEX IF NOT EXISTS entries_ref ON entries(ref_code)')
         apply_design_v2(c)
         apply_prize_v3(c)
@@ -450,7 +452,7 @@ class SandboxGateway:
     def void(self, authorization_id):
         return True, 'SANDBOX-VOID-' + secrets.token_hex(6).upper(), 'Sandbox authorization voided.'
 
-    def refund(self, capture_id, amount_cents):
+    def refund(self, capture_id, amount_cents, key=None):
         return True, 'SANDBOX-REF-' + secrets.token_hex(8).upper(), 'Sandbox refund issued.'
 
 
@@ -544,10 +546,10 @@ class StripeGateway:
             return False, None, str(e)
         return True, pi.get('id'), 'Stripe authorization hold released.'
 
-    def refund(self, capture_id, amount_cents):
-        key = 'charge' if str(capture_id).startswith('ch_') else 'payment_intent'
-        try:
-            r = self._call('POST', '/v1/refunds', {key: capture_id, 'amount': amount_cents}, idem=f'refund-{capture_id}')
+    def refund(self, capture_id, amount_cents, key=None):
+        field = 'charge' if str(capture_id).startswith('ch_') else 'payment_intent'
+        try:  # key: one refund per entry; a '2 for $300' purchase has two entries on one charge
+            r = self._call('POST', '/v1/refunds', {field: capture_id, 'amount': amount_cents}, idem=f"refund-{key or capture_id}")
         except StripeError as e:
             return False, None, str(e)
         return True, r.get('id'), f'Stripe {self._kind} refund issued.'
@@ -604,10 +606,15 @@ def share_block(campaign, link):
     return text, h
 
 
-def render_email(campaign, entry, link=None):
-    amount = 'Free entry (no donation)' if entry['status'] == 'free' else money(entry['amount_cents'])
-    vals = _Safe(name=entry['name'], number=entry['number'], amount=amount,
-                 confirmation=confirmation_code(entry['number']), campaign=campaign['title'],
+def render_email(campaign, entry, link=None, group=None):
+    group = group or [entry]
+    amount = 'Free entry (no donation)' if entry['status'] == 'free' else money(sum(e['amount_cents'] for e in group))
+    pkg = entry['package'] if 'package' in entry.keys() else 'spin'
+    if pkg in PACKAGES and entry['status'] != 'free':
+        amount += f" ({PACKAGE_LABELS[pkg]})"
+    number = ' & #'.join(str(e['number']) for e in group)
+    vals = _Safe(name=entry['name'], number=number, amount=amount,
+                 confirmation=', '.join(confirmation_code(e['number']) for e in group), campaign=campaign['title'],
                  org=campaign['org_name'], drawing_date=campaign.get('drawing_date') or 'To be announced')
     subject = campaign['email_subject'].format_map(vals)
     text = campaign['email_body'].format_map(vals)
@@ -660,9 +667,17 @@ def smtp_send(to, subject, text, html_body=None):
         return 'failed', str(e)[:300], None
 
 
+def purchase_group(c, entry):
+    """All entries bought in the same card payment (a '2 for $300' purchase), lowest id first."""
+    if entry['method'] == 'free' or not entry['authorization_id']:
+        return [entry]
+    return c.execute('SELECT * FROM entries WHERE authorization_id=? ORDER BY id', (entry['authorization_id'],)).fetchall() or [entry]
+
+
 def deliver_email(c, entry, campaign, actor='system'):
     link = share_link(c, campaign, entry['name'], entry['email'], entry['phone'] if 'phone' in entry.keys() else '')
-    subject, text, html_body = render_email(campaign, entry, link)
+    group = [e for e in purchase_group(c, entry) if e['status'] not in ('released', 'refunded', 'disqualified')] or [entry]
+    subject, text, html_body = render_email(campaign, group[0], link, group)
     status, err, sent_at = smtp_send(entry['email'], subject, text, html_body)
     c.execute('INSERT INTO emails(entry_id,to_addr,subject,body_text,body_html,status,error,sent_at) VALUES(?,?,?,?,?,?,?,?)',
               (entry['id'], entry['email'], subject, text, html_body, status, err, sent_at))
@@ -792,6 +807,22 @@ def pick_winners(seed, public_entropy, eligible, count):
 # ───────────────────────────── validation ─────────────────────────────
 
 EMAIL_RE = re.compile(r'[^\s@]+@[^\s@]+\.[^\s@]+')
+# Fixed-price options next to the spin. (entries, total price in cents); the spin itself is 'spin'.
+PACKAGES = {'chai': (1, 18000), 'pair': (2, 30000)}
+PACKAGE_LABELS = {'spin': 'Spin', 'chai': 'Chai ticket $180', 'pair': '2 for $300'}
+
+
+def package_of(value):
+    v = str(value or 'spin').strip().lower()
+    return v if v in PACKAGES else 'spin'
+
+
+def package_auth_text(campaign, package):
+    n, total = PACKAGES[package]
+    return (f"I authorize {org_display(campaign)} to charge my payment method {money(total)} for "
+            f"{'one entry' if n == 1 else f'{n} entries'}. Each entry receives a randomly assigned number.")
+
+
 RID_RE = re.compile(r'[a-zA-Z0-9-]{16,80}')
 
 

@@ -9,6 +9,20 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const LETTERS = ['נ', 'ג', 'ה', 'ש'];
 const state = { max: 360, unit: 100, remaining: null, open: true, closedMsg: '', busy: false, requestId: newId(), campaign: null, processor: 'simulated' };
 
+const PKGS = { chai: { n: 1, total: 180, label: 'Chai ticket · $180' }, pair: { n: 2, total: 300, label: '2 entries · $300' } };
+const pkgNow = () => { const r = document.querySelector('input[name="pkg"]:checked'); return r && PKGS[r.value] ? r.value : 'spin'; };
+const spinTexts = {};
+function applyPkg() {
+  const p = pkgNow(), f = PKGS[p];
+  for (const id of ['authLede', 'authBox', 'authText']) if (!(id in spinTexts)) spinTexts[id] = $(id).innerHTML;
+  const go = $('go').querySelector('span'); if (!('go' in spinTexts)) spinTexts.go = go.textContent;
+  if (!f) { for (const id of ['authLede', 'authBox', 'authText']) $(id).innerHTML = spinTexts[id]; go.textContent = spinTexts.go; return; }
+  const what = f.n === 1 ? 'one entry' : `${f.n} entries`;
+  $('authLede').innerHTML = `Your card is charged <b>$${f.total}</b> for ${what}. The dreidel still spins to give you ${f.n === 1 ? 'a random number' : 'two random numbers'}.`;
+  $('authBox').innerHTML = `<div><span>Your choice</span><strong>${f.label}</strong></div><div><span>You’re charged</span><strong>$${f.total}</strong></div>`;
+  $('authText').textContent = `I authorize a charge of $${f.total} for ${what}.`;
+  go.textContent = `Pay $${f.total} & spin`;
+}
 function newId() { return crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); }
 const money = (cents) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
@@ -640,13 +654,17 @@ function showStep(n) {
 }
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const validPhone = (p) => /^[0-9+()\-.\s]+$/.test(p) && (p.replace(/\D/g, '').length >= 7) && (p.replace(/\D/g, '').length <= 15);
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'pkg') return;
+  state.requestId = newId(); payment = null; $('payEl').innerHTML = ''; applyPkg();
+});
 $('next').addEventListener('click', () => {
   const name = $('name').value.trim(), email = $('email').value.trim(), phone = $('phone').value.trim();
   const fail = (msg, el) => { $('error').textContent = msg; el.focus(); };
   if (!name) return fail('Please enter your name.', $('name'));
   if (!validEmail(email)) return fail('Please enter a valid email address.', $('email'));
   if (!validPhone(phone)) return fail('Please enter a valid phone number.', $('phone'));
-  $('error').textContent = ''; showStep(2); setTimeout(() => $('consent').focus(), 50);
+  $('error').textContent = ''; applyPkg(); showStep(2); setTimeout(() => $('consent').focus(), 50);
   preparePayment().catch(err => { $('payEl').innerHTML = ''; $('error').textContent = err.message || 'Could not load the secure card form.'; });
 });
 
@@ -665,7 +683,7 @@ async function preparePayment() {
   const box = $('payEl'); box.hidden = false; box.innerHTML = '<p class="pay-loading">Loading secure card form…</p>';
   const rid = state.requestId;
   const [StripeCtor, r] = await Promise.all([loadStripe(), fetch('/api/payment-intent', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: $('name').value.trim(), email: $('email').value.trim(), request_id: rid }) })]);
+    body: JSON.stringify({ name: $('name').value.trim(), email: $('email').value.trim(), request_id: rid, package: pkgNow() }) })]);
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Could not start the card authorization.');
   const stripe = StripeCtor(d.publishable_key);
@@ -706,7 +724,7 @@ $('checkout').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!$('consent').checked) { $('error').textContent = 'Please confirm the payment authorization to spin.'; return; }
   if (!$('consentRules').checked) { $('error').textContent = 'Please confirm your eligibility and agree to the Official Rules.'; return; }
-  const payload = { name: $('name').value.trim(), email: $('email').value.trim(), phone: $('phone').value.trim(), consent: true, consent_rules: true, marketing: $('marketing').checked, ref: referral.code, request_id: state.requestId };
+  const payload = { name: $('name').value.trim(), email: $('email').value.trim(), phone: $('phone').value.trim(), consent: true, consent_rules: true, marketing: $('marketing').checked, ref: referral.code, request_id: state.requestId, package: pkgNow() };
   const go = $('go'), label = go.querySelector('span'), txt = label.textContent;
   try {
     go.disabled = true; if (state.processor.startsWith('stripe')) label.textContent = 'Authorizing card…';
@@ -749,7 +767,8 @@ async function runSpin(payload) {
 /* ───────────── reveal ───────────── */
 function reveal(d) {
   const letter = LETTERS[d.number % 4];
-  counter.hide(); setHint(`Landed on ${letter} · № ${d.number}`);
+  const shown = (d.numbers && d.numbers.length > 1) ? d.numbers.join(' & ') : String(d.number);
+  counter.hide(); setHint(`Landed on ${letter} · № ${shown}`);
   sound.chime(); celebrate();
   $('rLetter').textContent = letter;
   const art = (state.campaign || {}).reveal_image, cap = (state.campaign || {}).reveal_caption || '';
@@ -767,13 +786,14 @@ function reveal(d) {
   referral.showMine(d.my_link);
   const layer = $('reveal'); layer.hidden = false; document.body.style.overflow = 'hidden'; updateBar();
   setTimeout(() => $('again').focus({ preventScroll: true }), 50);
-  if (!gsap || reduced) { $('rNumber').textContent = d.number; $('rAmount').textContent = d.amount_display; return; }
+  $('rNumber').parentElement.classList.toggle('two', shown !== String(d.number));
+  if (!gsap || reduced) { $('rNumber').textContent = shown; $('rAmount').textContent = d.amount_display; return; }
   $('rNumber').textContent = '0'; $('rAmount').textContent = money(0);
   const tl = gsap.timeline();
   tl.fromTo('.reveal-backdrop', { opacity: 0 }, { opacity: 1, duration: 0.5 })
     .fromTo('.reveal-card', { opacity: 0, y: 40, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out' }, 0.1);
   if (art) tl.fromTo('.r-art', { opacity: 0, scale: 0.6, rotate: -6 }, { opacity: 1, scale: 1, rotate: 0, duration: 0.9, ease: 'back.out(1.8)' }, 0.25);
-  tl.call(() => { $('rNumber').textContent = d.number; }, null, 0.25);
+  tl.call(() => { $('rNumber').textContent = shown; }, null, 0.25);
   tl.fromTo('.big-number', { scale: 1.25 }, { scale: 1, duration: 0.9, ease: 'elastic.out(1,0.5)' });
   const amt = { v: 0 }, cents = Math.round(d.amount * 100);
   tl.to(amt, { v: cents, duration: 0.9, ease: 'power2.out', onUpdate: () => { $('rAmount').textContent = money(Math.round(amt.v / 100) * 100); }, onComplete: () => { $('rAmount').textContent = d.amount_display; } }, '<0.1');

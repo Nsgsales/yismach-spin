@@ -84,7 +84,7 @@
       <td class="num"><b>#${e.number}</b></td>
       <td>${esc(e.name)}<span class="sub">${esc(e.email)}</span></td>
       <td class="num">${esc(e.phone)}</td>
-      <td class="num">${e.method === 'free' ? 'Free' : money(e.amount)}${e.rules_version ? `<span class="sub" title="${esc(e.consent_text || '')}">consent ${esc(e.consent_at || '')} · rules ${esc(e.rules_version)}${e.marketing_opt_in ? ' · marketing ✓' : ''}</span>` : ''}${e.received_at ? `<span class="sub">received ${esc(e.received_at)}</span>` : ''}</td>
+      <td class="num">${e.method === 'free' ? 'Free' : money(e.amount)}${e.package && e.package !== 'spin' ? `<span class="sub">${esc(e.package_label)}</span>` : ''}${e.rules_version ? `<span class="sub" title="${esc(e.consent_text || '')}">consent ${esc(e.consent_at || '')} · rules ${esc(e.rules_version)}${e.marketing_opt_in ? ' · marketing ✓' : ''}</span>` : ''}${e.received_at ? `<span class="sub">received ${esc(e.received_at)}</span>` : ''}</td>
       <td><span class="chip ${e.status}">${STATUS[e.status]}</span></td>
       <td>${e.email_status ? `<span class="chip ${e.email_status}">${e.email_status}</span>` : '<span class="sub">—</span>'}</td>
       <td class="num">${esc(e.created)}</td>

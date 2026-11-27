@@ -693,3 +693,99 @@ def test_share_emails_sent_once_to_earlier_entrants(client, admin, monkeypatch):
     # a new entry after the blast gets the link in its confirmation and is not queued again
     assert spin(client, email='c@example.com').status_code == 200
     assert admin.get('/api/admin/share-emails').json['pending'] == 0
+
+
+# ───────────── fixed-price options: $180 for one, $300 for two ─────────────
+
+def test_stripe_chai_and_pair_charge_exact_price(stripe_app):
+    a, fake = stripe_app
+    c = a.test_client()
+    adm = a.test_client()
+    adm.post('/api/admin/login', json={'username': 'admin', 'password': 'local-demo-only'})
+
+    def buy(pkg, email='p@example.com'):
+        rid = str(uuid.uuid4())
+        r = c.post('/api/payment-intent', json={'email': email, 'request_id': rid, 'package': pkg})
+        assert r.status_code == 200, r.json
+        pid = r.json['payment_intent']
+        fake.browser_confirms(pid)
+        return r.json['amount'], spin(c, email=email, rid=rid, payment_intent=pid, package=pkg).json, pid
+
+    amt, d, pid = buy('chai')
+    assert amt == 18000 and fake.intents[pid]['amount'] == 18000  # no $360 hold
+    assert d['payment_status'] == 'paid' and d['amount'] == 180 and len(d['numbers']) == 1
+    assert fake.intents[pid]['amount_received'] == 18000
+
+    amt, d, pid = buy('pair', email='q@example.com')
+    assert amt == 30000 and d['amount'] == 300 and d['amount_display'] == '$300'
+    assert len(d['numbers']) == 2 and len(set(d['numbers'])) == 2 and d['number'] == d['numbers'][0]
+    assert fake.intents[pid]['amount_received'] == 30000
+    assert len([x for x in fake.calls if x[1] == f'/v1/payment_intents/{pid}/capture']) == 1  # one charge for both
+
+    rows = adm.get('/api/admin', headers=ADMIN).json
+    pair = [e for e in rows['entries'] if e['email'] == 'q@example.com']
+    assert sorted(e['number'] for e in pair) == sorted(d['numbers'])
+    assert all(e['amount_cents'] == 15000 and e['status'] == 'paid' and e['package_label'] == '2 for $300' for e in pair)
+    assert rows['sold'] == 3 and rows['remaining'] == 357
+
+    # one email for the pair, listing both numbers
+    mails = [m for m in adm.get('/api/admin/emails').json['emails'] if m['to_addr'] == 'q@example.com']
+    assert len(mails) == 1
+    body = adm.get(f"/api/admin/emails/{mails[0]['id']}").json['body_text']
+    assert all(f'#{n}' in body for n in d['numbers']) and '$300 (2 for $300)' in body
+
+    # refunding one entry of the pair refunds $150 and leaves the other entry in the drawing
+    e1, e2 = sorted(pair, key=lambda e: e['id'])
+    assert adm.post(f"/api/admin/entries/{e1['id']}/refund", headers=ADMIN).json['ok']
+    assert fake.calls[-1][2] == {'charge': 'ch_' + pid, 'amount': 15000} and fake.calls[-1][3] == f"refund-entry-{e1['id']}"
+    assert adm.post(f"/api/admin/entries/{e2['id']}/refund", headers=ADMIN).json['ok']
+    assert fake.calls[-1][3] == f"refund-entry-{e2['id']}"  # separate refund, not a replay of the first
+
+    # idempotent retry returns the same two numbers
+    rid = str(uuid.uuid4())
+    pid = c.post('/api/payment-intent', json={'email': 'r@example.com', 'request_id': rid, 'package': 'pair'}).json['payment_intent']
+    fake.browser_confirms(pid)
+    first = spin(c, email='r@example.com', rid=rid, payment_intent=pid, package='pair').json
+    again = spin(c, email='r@example.com', rid=rid, payment_intent=pid, package='pair').json
+    assert again['numbers'] == first['numbers']
+
+
+def test_spin_hold_cannot_be_used_for_cheaper_option_switch(stripe_app):
+    """A $180 hold can't buy a spin (which needs a $360 hold)."""
+    a, fake = stripe_app
+    c = a.test_client()
+    rid = str(uuid.uuid4())
+    pid = c.post('/api/payment-intent', json={'email': 's@example.com', 'request_id': rid, 'package': 'chai'}).json['payment_intent']
+    fake.browser_confirms(pid)
+    assert spin(c, email='s@example.com', rid=rid, payment_intent=pid).status_code == 402
+
+
+def test_pair_capture_failure_retry_and_release_cover_both(client, admin):
+    d = spin(client, email='x+capturefail@example.com', package='pair').json
+    assert d['payment_status'] == 'capture_failed' and len(d['numbers']) == 2
+    rows = [e for e in admin.get('/api/admin').json['entries'] if e['email'] == 'x+capturefail@example.com']
+    assert all(e['status'] == 'capture_failed' for e in rows)
+    r = admin.post(f"/api/admin/entries/{rows[0]['id']}/retry-capture", headers=ADMIN).json
+    assert r['ok']
+    rows = [e for e in admin.get('/api/admin').json['entries'] if e['email'] == 'x+capturefail@example.com']
+    assert all(e['status'] == 'paid' for e in rows)
+    tx = [t for t in admin.get('/api/admin/transactions').json['transactions'] if t['kind'] == 'capture' and t['status'] == 'succeeded']
+    assert tx[0]['amount_cents'] == 30000
+
+    d = spin(client, email='y+capturefail@example.com', package='pair').json
+    rows = [e for e in admin.get('/api/admin').json['entries'] if e['email'] == 'y+capturefail@example.com']
+    assert admin.post(f"/api/admin/entries/{rows[0]['id']}/release", headers=ADMIN).json['ok']
+    rows = [e for e in admin.get('/api/admin').json['entries'] if e['email'] == 'y+capturefail@example.com']
+    assert all(e['status'] == 'released' for e in rows)
+
+
+def test_pair_needs_two_numbers_left(client, admin):
+    admin.post('/api/admin/settings', json={'max_tickets': 1}, headers=ADMIN)
+    r = spin(client, package='pair')
+    assert r.status_code == 409 and 'Only 1 entry is left' in r.json['error']
+    assert spin(client, package='chai').json['amount'] == 180
+
+
+def test_rules_mention_fixed_price_options(client):
+    rules = json.dumps(client.get('/api/legal').json['docs']['rules'])
+    assert '$180 for one entry' in rules and '$300 for two' in rules
